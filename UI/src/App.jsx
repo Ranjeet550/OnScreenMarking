@@ -197,6 +197,14 @@ function AppRoutes() {
             element={userType === 'coordinator' ? <PapersManagement /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
           />
           <Route 
+            path="/admin/import-papers-from-project" 
+            element={userType === 'admin' ? <ImportPapers /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
+          />
+          <Route 
+            path="/import-papers-from-project" 
+            element={userType === 'coordinator' ? <ImportPapers /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
+          />
+          <Route 
             path="/admin/import-papers" 
             element={userType === 'admin' ? <ImportPapers /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
           />
