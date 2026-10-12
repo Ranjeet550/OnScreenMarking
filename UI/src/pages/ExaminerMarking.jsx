@@ -12,12 +12,14 @@ import {
   FileText,
   AlertCircle,
   ChevronLeft,
+  ChevronRight,
   Barcode,
   Check
 } from "lucide-react";
 import PDFAnnotator from "../components/PDFAnnotator";
 import sectionService from "../services/sectionService";
 import markingService from "../services/markingService";
+import paperService from "../services/paperService";
 import userService from "../services/userService";
 import { useAuth } from "../context/AuthContext";
 import message from "../services/messageService";
@@ -115,12 +117,16 @@ const ExaminerMarking = () => {
   const rollNo = location.state?.rollNo || queryParams.get('rollNo');
   const subject = location.state?.subject || queryParams.get('subject');
   const cleanPdfUrl = location.state?.cleanPdfUrl || queryParams.get('cleanPdfUrl');
-  const qpPdfUrl = location.state?.questionPaperPdfUrl || queryParams.get('questionPaperPdfUrl');
+  const rawQpPdfUrl = location.state?.questionPaperPdfUrl || queryParams.get('questionPaperPdfUrl');
+  const isReadOnly = location.state?.readOnly === true || queryParams.get('readOnly') === 'true';
   const apiBaseUrl = import.meta.env.VITE_API_URL;
   const pdfUrl = scriptId ? `${apiBaseUrl}/Scripts/${scriptId}/pdf` : null;
 
   const [sections, setSections] = useState([]);
   const [paperInfo, setPaperInfo] = useState(null);
+  const [fetchedQpUrl, setFetchedQpUrl] = useState("");
+  const effectiveQpPdfUrl = rawQpPdfUrl || fetchedQpUrl || paperInfo?.questionPaperPdfUrl || paperInfo?.pdfUrl || "";
+
   const [expandedSections, setExpandedSections] = useState({});
   const [questionMarks, setQuestionMarks] = useState({});
   const [totalObtained, setTotalObtained] = useState(0);
@@ -135,11 +141,13 @@ const ExaminerMarking = () => {
   const [saving, setSaving] = useState(false);
   const [annotations, setAnnotations] = useState([]);
   const [selectedQuestion, setSelectedQuestion] = useState(null);
+  const [showRemarksModal, setShowRemarksModal] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null); 
   const [showQpModal, setShowQpModal] = useState(false);
+  const [isQpCollapsed, setIsQpCollapsed] = useState(true);
   const [stream, setStream] = useState(null);
   const videoRef = useRef(null);
   const [isBlurred, setIsBlurred] = useState(false);
@@ -148,6 +156,14 @@ const ExaminerMarking = () => {
   // Security Print & Screenshot Prevention
   useEffect(() => {
     const handleContextMenu = (e) => {
+      // Allow right-click on the PDF canvas or annotator container so examiners can allot marks
+      if (
+        e.target.tagName === 'CANVAS' || 
+        e.target.closest('canvas') ||
+        e.target.closest('[data-annotator-container="true"]')
+      ) {
+        return;
+      }
       e.preventDefault();
     };
 
@@ -555,22 +571,40 @@ const ExaminerMarking = () => {
   const fetchPaperData = async () => {
     try {
       setLoading(true);
+      // Fetch paper details to get questionPaperPdfUrl
+      if (paperId) {
+        try {
+          const fullPaper = await paperService.getPaperById(paperId);
+          if (fullPaper) {
+            setPaperInfo(fullPaper);
+            if (fullPaper.questionPaperPdfUrl) {
+              setFetchedQpUrl(fullPaper.questionPaperPdfUrl);
+            }
+          }
+        } catch (qpErr) {
+          console.warn("Failed to fetch full paper by ID:", qpErr);
+        }
+      }
+
       // Use dynamic paperId instead of hardcoded 2
       const data = await sectionService.getAllSections(paperId);
       
       if (data && data.length > 0) {
         setSections(data);
-        // Extract paper info from the first section's paper object
+        // Extract paper info from the first section's paper object if not already loaded
         if (data[0].paper) {
-          setPaperInfo(data[0].paper);
+          setPaperInfo(prev => ({ ...(prev || {}), ...data[0].paper }));
+          if (data[0].paper.questionPaperPdfUrl) {
+            setFetchedQpUrl(data[0].paper.questionPaperPdfUrl);
+          }
         }
 
         const expanded = {};
         const marks = {};
         const attemptCounts = {};
         
-        data.forEach((section, index) => {
-          expanded[section.id] = index === 0; // Only expand the first section by default
+        data.forEach((section) => {
+          expanded[section.id] = true; // All sections open by default
           attemptCounts[section.id] = 0; // Initialize attempt count for section
           section.questions?.forEach((q) => {
             marks[q.questionId] = {
@@ -587,6 +621,12 @@ const ExaminerMarking = () => {
         setExpandedSections(expanded);
         setQuestionMarks(marks);
         setSectionAttemptCounts(attemptCounts);
+
+        // Auto-select first question so annotation tool is immediately enabled
+        const firstQ = data[0]?.questions?.[0];
+        if (firstQ) {
+          setSelectedQuestion((prev) => prev || firstQ.questionId);
+        }
 
         // Create marking session after loading sections
         const mId = await createMarkingSession();
@@ -708,11 +748,32 @@ const ExaminerMarking = () => {
   };
 
   const findQuestionById = (qId) => {
+    if (!qId) return null;
     for (const section of sections) {
-      const q = section.questions?.find((q) => q.questionId === qId);
+      const q = section.questions?.find((q) => String(q.questionId) === String(qId));
       if (q) return q;
     }
     return null;
+  };
+
+  const canAttemptQuestion = (qNo) => {
+    const q = findQuestionByNo(qNo);
+    if (!q) return true;
+    const sec = sections.find(s => s.id === q.sectionId);
+    if (!sec || !sec.maxQuestionsToAttempt || sec.maxQuestionsToAttempt <= 0) return true;
+    
+    // Check if question is already attempted
+    const m = questionMarks[q.questionId];
+    const isAlreadyAttempted = (m?.isAttempted || (m?.marksAwarded && m.marksAwarded > 0)) && !m?.isSkipped;
+    if (isAlreadyAttempted) return true; // Can re-edit or update existing attempted question
+    
+    // Count currently attempted questions in this section
+    const attemptedCount = (sec.questions || []).filter(sq => {
+      const sm = questionMarks[sq.questionId];
+      return (sm?.isAttempted || (sm?.marksAwarded && sm.marksAwarded > 0)) && !sm?.isSkipped;
+    }).length;
+    
+    return attemptedCount < sec.maxQuestionsToAttempt;
   };
 
   const calculateTotal = (marks) => {
@@ -736,14 +797,10 @@ const ExaminerMarking = () => {
   };
 
   const toggleSection = (sectionId) => {
-    setExpandedSections((prev) => {
-      const isCurrentlyExpanded = prev[sectionId];
-      const nextExpanded = {};
-      if (!isCurrentlyExpanded) {
-        nextExpanded[sectionId] = true;
-      }
-      return nextExpanded;
-    });
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
   };
 
   const handleMarkChange = (questionId, value) => {
@@ -937,12 +994,80 @@ const ExaminerMarking = () => {
   };
  
   const handleSubmitMarking = async () => {
-    if (totalObtained === 0) {
-      showStatus("error", "Cannot submit with zero total marks. Please annotate/mark questions.");
+    const totalPages = annotatorRef.current?.getTotalPages ? annotatorRef.current.getTotalPages() : 0;
+
+    // Page coverage check: skip page 1 (index 0), all other pages must have at least one annotation
+    if (totalPages > 1) {
+      const unmarkedPages = [];
+      for (let p = 1; p < totalPages; p++) { // start from index 1 = Page 2
+        const hasPageMarking = annotations.some(anno => (anno.page === undefined ? 0 : anno.page) === p);
+        if (!hasPageMarking) {
+          unmarkedPages.push(p + 1); // display as 1-indexed page number
+        }
+      }
+      if (unmarkedPages.length > 0) {
+        showStatus(
+          'error',
+          `All pages (except Page 1) must have a marking before submitting! Unannotated page(s): ${unmarkedPages.map(n => `Page ${n}`).join(', ')}`
+        );
+        return;
+      }
+    }
+
+    // Section-wise question attempt check considering MaxQuestionsToAttempt
+    const pendingSectionRequirements = [];
+
+    sections.forEach(sec => {
+      const secQuestions = sec.questions || [];
+      const attemptedCount = secQuestions.filter(q => {
+        const m = questionMarks[q.questionId];
+        return m && (m.isAttempted || (m.marksAwarded && m.marksAwarded > 0)) && !m.isSkipped;
+      }).length;
+
+      if (sec.maxQuestionsToAttempt > 0) {
+        // If candidate attempted maxQuestionsToAttempt (e.g. 3 in Section C), section is satisfied!
+        if (attemptedCount >= sec.maxQuestionsToAttempt) {
+          return;
+        }
+
+        const unreviewedQuestions = secQuestions.filter(q => {
+          const m = questionMarks[q.questionId];
+          if (!m) return true;
+          return !m.isAttempted && !(m.marksAwarded > 0) && !m.isSkipped;
+        });
+
+        if (unreviewedQuestions.length > 0) {
+          pendingSectionRequirements.push(
+            `${sec.name} (${attemptedCount}/${sec.maxQuestionsToAttempt} attempted, pending: ${unreviewedQuestions.map(q => `Q${q.questionNo}`).join(', ')})`
+          );
+        }
+      } else {
+        const unreviewedQuestions = secQuestions
+          .filter(q => !q.isOptional)
+          .filter(q => {
+            const m = questionMarks[q.questionId];
+            if (!m) return true;
+            return !m.isAttempted && !(m.marksAwarded > 0) && !m.isSkipped;
+          });
+
+        if (unreviewedQuestions.length > 0) {
+          pendingSectionRequirements.push(
+            `${sec.name} pending: ${unreviewedQuestions.map(q => `Q${q.questionNo}`).join(', ')}`
+          );
+        }
+      }
+    });
+
+    if (pendingSectionRequirements.length > 0) {
+      showStatus(
+        'error',
+        `All section requirements must be completed before submitting: ${pendingSectionRequirements.join('; ')}`
+      );
       return;
     }
+
     if (!markingId) {
-      showStatus("error", "No active marking session. Cannot submit.");
+      showStatus('error', 'No active marking session. Cannot submit.');
       return;
     }
  
@@ -950,7 +1075,7 @@ const ExaminerMarking = () => {
       setSaving(true);
       
       // Compile evaluated PDF copy with annotations intact and upload
-      let evaluatedUrl = "";
+      let evaluatedUrl = '';
       if (annotatorRef.current?.generateEvaluatedPdf) {
         evaluatedUrl = await annotatorRef.current.generateEvaluatedPdf(markingId);
       }
@@ -965,16 +1090,90 @@ const ExaminerMarking = () => {
       // Submit the marking
       await markingService.submitMarking(markingId);
       setSubmitted(true);
-      showStatus("success", `Submitted! Total: ${totalObtained} / ${paperInfo?.maxMarks || 100}`);
+      showStatus('success', `Submitted! Total: ${totalObtained} / ${paperInfo?.maxMarks || 100}`);
     } catch (err) {
-      showStatus("error", "Submission failed: " + (err?.message || err));
+      showStatus('error', 'Submission failed: ' + (err?.message || err));
     } finally {
       setSaving(false);
     }
   };
 
+
   const totalQuestionsCount = Object.keys(questionMarks).length;
   const allQuestionsDefined = totalQuestionsCount > 0;
+
+  // Calculate total pages from annotatorRef (safe fallback: if no PDF loaded, treat as 0 pages)
+  const totalAnnotatorPages = annotatorRef.current?.getTotalPages ? annotatorRef.current.getTotalPages() : 0;
+
+  // Check pages from index 1 onwards (skip page 1 = index 0) for annotation coverage
+  const unmarkedPageNumbers = totalAnnotatorPages > 1
+    ? Array.from({ length: totalAnnotatorPages - 1 }, (_, i) => i + 1) // indices 1, 2, 3...
+        .filter(p => !annotations.some(anno => (anno.page === undefined ? 0 : anno.page) === p))
+        .map(p => p + 1) // convert to 1-indexed for display (index 1 → "Page 2", etc.)
+    : [];
+
+  // All pages (except page 1) must have at least one annotation
+  const allPagesAnnotated = totalAnnotatorPages <= 1 || unmarkedPageNumbers.length === 0;
+
+  // Section-wise attempt validation considering MaxQuestionsToAttempt
+  const pendingSectionRequirements = [];
+
+  sections.forEach(sec => {
+    const secQuestions = sec.questions || [];
+    const attemptedCount = secQuestions.filter(q => {
+      const m = questionMarks[q.questionId];
+      return m && (m.isAttempted || (m.marksAwarded && m.marksAwarded > 0)) && !m.isSkipped;
+    }).length;
+
+    if (sec.maxQuestionsToAttempt > 0) {
+      // If candidate attempted maxQuestionsToAttempt (e.g. 3 in Section C), section is complete!
+      if (attemptedCount >= sec.maxQuestionsToAttempt) {
+        return;
+      }
+
+      const unreviewedQuestions = secQuestions.filter(q => {
+        const m = questionMarks[q.questionId];
+        if (!m) return true;
+        return !m.isAttempted && !(m.marksAwarded > 0) && !m.isSkipped;
+      });
+
+      if (unreviewedQuestions.length > 0) {
+        pendingSectionRequirements.push(
+          `${sec.name}: ${attemptedCount}/${sec.maxQuestionsToAttempt} attempted (${unreviewedQuestions.map(q => `Q${q.questionNo}`).join(', ')} pending)`
+        );
+      }
+    } else {
+      const unreviewedQuestions = secQuestions
+        .filter(q => !q.isOptional)
+        .filter(q => {
+          const m = questionMarks[q.questionId];
+          if (!m) return true;
+          return !m.isAttempted && !(m.marksAwarded > 0) && !m.isSkipped;
+        });
+
+      if (unreviewedQuestions.length > 0) {
+        pendingSectionRequirements.push(
+          `${sec.name} pending: ${unreviewedQuestions.map(q => `Q${q.questionNo}`).join(', ')}`
+        );
+      }
+    }
+  });
+
+  const allSectionsSatisfied = pendingSectionRequirements.length === 0;
+
+  // Build tooltip reason — show the most blocking reason first
+  const submitDisabledReason = !allSectionsSatisfied
+    ? `Section requirements pending before submitting: ${pendingSectionRequirements.join('; ')}`
+    : !allPagesAnnotated
+    ? `All pages (except Page 1) must have at least one annotation before submitting. Unannotated page(s): ${unmarkedPageNumbers.map(n => `Page ${n}`).join(', ')}`
+    : saving
+    ? 'Saving in progress...'
+    : isReadOnly
+    ? 'This submission is read-only'
+    : '';
+
+  const isSubmitDisabled = isReadOnly || saving || !allPagesAnnotated || !allSectionsSatisfied;
+
 
   if (loading) {
     return (
@@ -1060,7 +1259,27 @@ const ExaminerMarking = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (!effectiveQpPdfUrl) {
+                message.info("Question paper PDF is not available for this paper.");
+                return;
+              }
+              setIsQpCollapsed(!isQpCollapsed);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-all shadow-sm cursor-pointer ${
+              !isQpCollapsed && effectiveQpPdfUrl
+                ? 'bg-teal-700 text-white border-teal-800 hover:bg-teal-800' 
+                : 'bg-teal-50 text-teal-800 border-teal-300 hover:bg-teal-100'
+            }`}
+            title={!isQpCollapsed && effectiveQpPdfUrl ? "Hide Question Paper" : "Show Question Paper"}
+          >
+            <FileText size={14} className={!isQpCollapsed && effectiveQpPdfUrl ? "text-white" : "text-teal-600"} />
+            <span>{!isQpCollapsed && effectiveQpPdfUrl ? "Hide QP" : "Show QP"}</span>
+          </button>
+
           <div className="bg-teal-50 py-1.5 rounded-lg border border-teal-200 flex flex-col items-center md:px-4 px-3">
             <p className="text-[10px] uppercase font-bold text-teal-700">Total Score</p>
             <p className="text-2xl font-bold text-teal-900 leading-none">
@@ -1069,12 +1288,16 @@ const ExaminerMarking = () => {
           </div>
           
           <button
-            onClick={handleSubmitMarking}
-            disabled={submitted || saving}
-            className="bg-teal-700 hover:bg-teal-800 disabled:bg-gray-400 text-white py-2 rounded-md font-bold uppercase text-xs transition-colors shadow-md cursor-pointer disabled:cursor-not-allowed md:px-5 px-4"
-            title="Submit evaluation"
+            onClick={!isSubmitDisabled ? handleSubmitMarking : undefined}
+            disabled={isSubmitDisabled}
+            className={`py-2 rounded-md font-bold uppercase text-xs transition-colors shadow-md md:px-5 px-4 ${
+              isSubmitDisabled
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-teal-700 hover:bg-teal-800 text-white cursor-pointer'
+            }`}
+            title={submitDisabledReason || 'Submit evaluation'}
           >
-            {saving ? "Saving..." : "Submit"}
+            {saving ? 'Saving...' : (submitted ? 'Re-submit' : 'Submit')}
           </button>
         </div>
       </header>
@@ -1099,18 +1322,33 @@ const ExaminerMarking = () => {
       )}
 
       {/* MAIN LAYOUT */}
-      <main className="flex-1 p-4 grid grid-cols-12 gap-4 overflow-hidden">
+      <main className="flex-1 p-3 flex flex-row gap-3 overflow-hidden relative">
         
         {/* QUESTION PAPER (LEFT) */}
-        {qpPdfUrl && (
-          <section className="col-span-3 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col">
-            <div className="bg-gray-900 text-white px-3 py-2 flex items-center gap-2 shrink-0">
-              <FileText size={14} className="text-teal-500" />
-              <h3 className="font-semibold text-xs uppercase tracking-wide">Question Paper</h3>
+        {effectiveQpPdfUrl && !isQpCollapsed && (
+          <section className="w-80 shrink-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col transition-all">
+            <div className="bg-gray-900 text-white px-3 py-2 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText size={14} className="text-teal-400" />
+                <h3 className="font-semibold text-xs uppercase tracking-wide">Question Paper</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsQpCollapsed(true)}
+                className="p-1 hover:bg-gray-800 text-gray-300 hover:text-white rounded transition-colors flex items-center gap-1 text-[11px] cursor-pointer"
+                title="Collapse Question Paper"
+              >
+                <ChevronLeft size={16} />
+                <span className="hidden sm:inline">Collapse</span>
+              </button>
             </div>
             <div className="flex-1 bg-gray-100">
               <iframe 
-                src={`${import.meta.env.VITE_API_URL.replace('/api', '')}/${qpPdfUrl.replace(/^\//, '')}`}
+                src={
+                  effectiveQpPdfUrl.startsWith('http')
+                    ? effectiveQpPdfUrl
+                    : `${import.meta.env.VITE_API_URL.replace('/api', '')}/${effectiveQpPdfUrl.replace(/^\//, '')}`
+                }
                 className="w-full h-full border-0"
                 title="Question Paper"
               />
@@ -1119,7 +1357,8 @@ const ExaminerMarking = () => {
         )}
 
         {/* MID: ANNOTATOR AREA */}
-        <section className={`${qpPdfUrl ? 'col-span-7' : 'col-span-9'} bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col`}>          <PDFAnnotator 
+        <section className="flex-1 relative bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-w-0 transition-all">
+          <PDFAnnotator 
             ref={annotatorRef}
             onAnnotationsChange={handleAnnotationsChange}
             currentQuestionId={selectedQuestion ? findQuestionById(selectedQuestion)?.questionNo : null}
@@ -1128,151 +1367,145 @@ const ExaminerMarking = () => {
             sections={sections}
             pdfUrl={pdfUrl}
             scriptId={scriptId}
-            readOnly={submitted}
+            readOnly={isReadOnly}
+            canAttemptQuestion={canAttemptQuestion}
+            onToggleQp={() => {
+              if (!effectiveQpPdfUrl) {
+                message.info("Question paper PDF is not available for this paper.");
+                return;
+              }
+              setIsQpCollapsed(!isQpCollapsed);
+            }}
+            isQpOpen={!isQpCollapsed && !!effectiveQpPdfUrl}
           />
         </section>
- 
+
         {/* RIGHT: MARKING PANEL */}
-        <aside className={`${qpPdfUrl ? 'col-span-2' : 'col-span-3'} flex flex-col gap-4 overflow-hidden`}>
+        <aside className="w-56 shrink-0 flex flex-col gap-2.5 max-h-full self-start overflow-hidden">
           {/* CONTROL CENTER */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 shrink-0">
             <div className="grid gap-2 grid-cols-2">
               <button 
                 onClick={handleSaveMarks}
-                disabled={submitted}
-                className="flex items-center justify-center gap-2 bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 disabled:bg-gray-100 disabled:text-gray-400 font-semibold py-2 rounded-md shadow-sm transition-colors text-xs uppercase disabled:cursor-not-allowed"
+                disabled={isReadOnly}
+                className="flex items-center justify-center gap-1.5 bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 disabled:bg-gray-100 disabled:text-gray-400 font-semibold py-2 rounded-md shadow-sm transition-colors text-xs uppercase disabled:cursor-not-allowed cursor-pointer"
               >
-                <Save size={16} /> Save
+                <Save size={15} /> Save
               </button>
               <button 
                 onClick={() => {if(window.confirm("Reset all marks?")) window.location.reload();}}
-                disabled={submitted}
-                className="flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 font-semibold py-2 rounded-lg shadow-sm transition-colors text-xs uppercase disabled:cursor-not-allowed"
+                disabled={isReadOnly}
+                className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 font-semibold py-2 rounded-md shadow-sm transition-colors text-xs uppercase disabled:cursor-not-allowed cursor-pointer"
               >
-                <RotateCcw size={16} /> Reset
+                <RotateCcw size={15} /> Reset
               </button>
             </div>
           </div>
 
-          {/* QUESTION PALETTE */}
-          <div className="bg-white rounded-lg border border-gray-200 flex flex-col overflow-hidden shadow-md max-h-[50vh]">
-            <div className="bg-gray-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <FileText size={16} className="text-teal-500" />
+          {/* QUESTION PALETTE - FULL HEIGHT */}
+          <div className="bg-white rounded-lg border border-gray-200 flex flex-col overflow-hidden shadow-md flex-1 min-h-0">
+            <div className="bg-gray-900 text-white px-3 py-2 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-1.5">
+                <FileText size={14} className="text-teal-400" />
                 <h3 className="font-semibold text-xs uppercase tracking-wide">Questions</h3>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                <span className="text-xs font-medium uppercase">Active</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                <span className="text-[10px] font-medium uppercase text-gray-300">Active</span>
               </div>
             </div>
-
-            {/* QUICK EDIT PANEL */}
-            {selectedQuestion && (() => {
-              const q = findQuestionById(selectedQuestion);
-              const sec = sections.find(s => s.questions?.some(sq => sq.questionId === selectedQuestion));
-              const m = questionMarks[selectedQuestion] || {};
-              if (!q) return null;
-              
-              return (
-                <div className="bg-blue-50 border-b border-blue-200 p-3 shrink-0 flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-blue-900 text-sm">Q{q.questionNo}</span>
-                    <span className="text-xs text-blue-700 ml-2 tracking-wide font-medium">({sec?.name}) - Max: {q.marks}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={m.marksAwarded ?? ""}
-                      onChange={(e) => handleMarkChange(q.questionId, parseFloat(e.target.value))}
-                      disabled={submitted}
-                      className="w-16 text-center font-bold rounded shadow-sm border border-blue-300 py-1 text-sm outline-none focus:ring-2 ring-blue-400 bg-white"
-                      placeholder="0"
-                    />
-                    <button
-                      onClick={() => setSelectedQuestion(null)}
-                      className="p-1.5 rounded transition-colors border shadow-sm bg-teal-600 border-teal-700 text-white hover:bg-teal-700"
-                      title="Save & Close"
-                    >
-                      <Check size={16} />
-                    </button>
-                    <button
-                      onClick={() => setSelectedQuestion(null)}
-                      className="p-1.5 rounded transition-colors border shadow-sm bg-white border-gray-300 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-                      title="Close"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
             
-            <div className="flex-1 overflow-y-auto p-3 bg-gray-50 space-y-3">
+            <div className="flex-1 overflow-y-auto p-2 bg-gray-50 space-y-2">
               {sections.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 p-4 md:p-6">
-                  <AlertCircle size={40} className="mb-2 opacity-30" />
-                  <p className="text-xs font-medium uppercase">No sections loaded</p>
+                <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 p-3">
+                  <AlertCircle size={30} className="mb-1.5 opacity-30" />
+                  <p className="text-[11px] font-medium uppercase">No sections loaded</p>
                 </div>
               )}
 
               {sections.map((sec) => {
                 const attemptedCount = sec.questions?.filter(q => {
                   const marks = questionMarks[q.questionId];
-                  return marks?.isAttempted || marks?.marksAwarded > 0;
+                  return (marks?.isAttempted || (marks?.marksAwarded && marks.marksAwarded > 0)) && !marks?.isSkipped;
                 }).length || 0;
+                const isSectionComplete = sec.maxQuestionsToAttempt > 0 
+                  ? attemptedCount >= sec.maxQuestionsToAttempt 
+                  : attemptedCount === (sec.questions?.length || 0);
 
                 return (
-                <div key={sec.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                <div key={sec.id} className="bg-white rounded-lg border border-gray-200 shadow-xs overflow-hidden">
                   <div 
                     onClick={() => toggleSection(sec.id)}
-                    className="flex justify-between items-center bg-gray-100 p-3 border-b border-gray-200 cursor-pointer hover:bg-gray-200 transition-colors"
+                    className="flex justify-between items-center bg-gray-100 px-2.5 py-1.5 border-b border-gray-200 cursor-pointer hover:bg-gray-200 transition-colors"
                   >
                     <div className="flex-1">
-                      <span className="font-semibold text-sm text-gray-900 uppercase">{sec.name}</span>
-                      {sec.maxQuestionsToAttempt > 0 && (
-                        <p className="text-xs text-gray-600 mt-1">
-                          Max Questions: {attemptedCount}/{sec.maxQuestionsToAttempt}
+                      <span className="font-bold text-[11px] text-gray-900 uppercase">{sec.name}</span>
+                      {sec.maxQuestionsToAttempt > 0 ? (
+                        <p className={`text-[9px] font-semibold leading-none mt-0.5 ${
+                          attemptedCount >= sec.maxQuestionsToAttempt ? 'text-green-700' : 'text-gray-500'
+                        }`}>
+                          Attempts: {attemptedCount}/{sec.maxQuestionsToAttempt} {attemptedCount >= sec.maxQuestionsToAttempt ? '✓ (Max Reached)' : ''}
+                        </p>
+                      ) : (
+                        <p className="text-[9px] text-gray-500 leading-none mt-0.5">
+                          Attempted: {attemptedCount}/{sec.questions?.length || 0}
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-2 py-1 rounded border border-teal-100">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100">
                         {getSectionMarks(sec.id)} / {sec.totalMarks}
                       </span>
-                      {expandedSections[sec.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      {expandedSections[sec.id] ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                     </div>
                   </div>
 
                   {expandedSections[sec.id] && (
-                    <div className="p-3 grid grid-cols-5 gap-2 bg-white">
+                    <div className="p-1.5 grid grid-cols-5 gap-1 bg-white">
                       {sec.questions?.map((q) => {
                         const m = questionMarks[q.questionId] || {};
                         const isSelected = selectedQuestion === q.questionId;
-                        const isMarked = m.marksAwarded !== undefined || m.isAttempted;
+                        const isSkipped = m.isSkipped === true;
+                        // Green (visited) = has marks OR is skipped
+                        const hasMarks = Number(m.marksAwarded) > 0 || isSkipped;
+                        const displayMark = m.marksAwarded !== undefined ? m.marksAwarded : 0;
+                        const isSectionMaxMet = sec.maxQuestionsToAttempt > 0 && attemptedCount >= sec.maxQuestionsToAttempt && !hasMarks;
                         
                         return (
                           <div 
                             key={q.questionId}
-                            onClick={() => setSelectedQuestion(q.questionId)}
-                            className={`relative aspect-square flex flex-col items-center justify-center rounded cursor-pointer transition-all shadow-sm border ${
+                            onClick={() => {
+                              setSelectedQuestion(q.questionId);
+                              // Open annotator mark allotment popup (same as right click)
+                              annotatorRef.current?.openMarkModalForQuestion?.(q.questionNo);
+                            }}
+                            className={`relative h-11 flex flex-col items-center justify-center rounded cursor-pointer transition-all border ${
                               isSelected 
-                                ? "bg-green-800 text-white border-green-900 transform scale-105 z-10" 
-                                : isMarked
-                                  ? "bg-green-100 border-green-300 text-green-900 hover:bg-green-200"
-                                  : m.isSkipped
-                                    ? "bg-red-100 border-red-300 text-red-900 hover:bg-red-200"
-                                    : "bg-[#84cbf5] border-[#6ebbef] text-gray-900 hover:bg-[#6ebbef]"
+                                ? (hasMarks 
+                                    ? "bg-green-700 text-white border-green-800 ring-2 ring-green-400 font-bold z-10 scale-105 shadow-sm" 
+                                    : "bg-red-700 text-white border-red-800 ring-2 ring-red-400 font-bold z-10 scale-105 shadow-sm")
+                                : (hasMarks
+                                    ? "bg-green-50 border-green-300 text-green-900 hover:bg-green-100 font-semibold"
+                                    : isSectionMaxMet
+                                    ? "bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200 font-normal opacity-75"
+                                    : "bg-red-50 border-red-300 text-red-900 hover:bg-red-100 font-semibold")
                             }`}
+                            title={`Q${q.questionNo}: ${
+                              isSkipped
+                                ? 'Marked as Skipped'
+                                : hasMarks
+                                ? `${displayMark} marks`
+                                : isSectionMaxMet
+                                ? `Optional (Section limit ${sec.maxQuestionsToAttempt} reached)`
+                                : '0 marks'
+                            } (Click to open mark allotment box)`}
                           >
-                            <span className={`font-bold text-sm ${isSelected ? 'underline underline-offset-2' : ''}`}>{q.questionNo}</span>
-                            
-                            {(m.marksAwarded !== undefined || m.isAttempted || m.isSkipped) && (
-                              <span className={`text-[10px] font-bold leading-none mt-1 ${isSelected ? 'text-gray-300' : 'opacity-80'}`}>
-                                {m.isSkipped ? 'SKP' : (m.marksAwarded ?? '0')}
-                              </span>
-                            )}
+                            <span className="font-bold text-[11px] leading-tight">{q.questionNo}</span>
+                            <span className={`text-[8.5px] font-bold leading-tight mt-0.5 ${
+                              isSelected ? 'text-white' : (hasMarks ? 'text-green-800' : isSectionMaxMet ? 'text-gray-500' : 'text-red-700')
+                            }`}>
+                              {isSkipped ? 'Skip' : isSectionMaxMet ? 'Opt' : `${displayMark}m`}
+                            </span>
                           </div>
                         );
                       })}
@@ -1284,22 +1517,63 @@ const ExaminerMarking = () => {
             </div>
           </div>
 
-          {/* REMARKS */}
-          <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-md">
-            <div className="flex items-center gap-2 mb-2 text-gray-900">
-              <Type size={16} className="text-teal-700" />
-              <h3 className="font-semibold text-xs uppercase tracking-wide">Remarks</h3>
-            </div>
-            <textarea
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Enter examiner feedback..."
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white text-sm font-medium focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all"
-              rows="3"
-            />
+          {/* REMARKS BUTTON DOWN IT */}
+          <div className="shrink-0">
+            <button
+              onClick={() => setShowRemarksModal(true)}
+              className="w-full flex items-center justify-between px-3 py-1.5 bg-white border border-gray-300 hover:border-teal-500 rounded-lg shadow-xs text-xs font-semibold text-gray-700 hover:bg-teal-50 hover:text-teal-900 transition-all cursor-pointer"
+              title="Add or edit examiner remarks"
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <Type size={13} className="text-teal-600 shrink-0" />
+                <span className="truncate text-[11px]">{remarks ? `Remarks: "${remarks.slice(0, 16)}..."` : "Add Remarks"}</span>
+              </div>
+              <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 shrink-0 uppercase font-bold">
+                {remarks ? "Edit" : "+"}
+              </span>
+            </button>
           </div>
         </aside>
       </main>
+
+      {/* REMARKS MODAL */}
+      {showRemarksModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-[80] p-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-150 overflow-hidden">
+            <div className="bg-gray-900 text-white px-4 py-3 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Type size={16} className="text-teal-400" />
+                <h3 className="font-bold text-sm uppercase tracking-wide">Examiner Remarks</h3>
+              </div>
+              <button 
+                onClick={() => setShowRemarksModal(false)}
+                className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-gray-600">Provide overall feedback or observations for this answer script:</p>
+              <textarea
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="Enter feedback or examiner observations..."
+                className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm font-medium focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100 outline-none transition-all"
+                rows="4"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setShowRemarksModal(false)}
+                  className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
+                >
+                  Save Remarks
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* STATUS TOAST */}
       {saveStatus && (
