@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   X, LayoutDashboard, School, Building2, GraduationCap, BookOpen,
   Calendar, FileText, Layers, Zap, Users, Shield, Activity, PenTool,
-  BarChart3, BookMarked, Settings2, Briefcase
+  BarChart3, BookMarked, Settings2, Briefcase, Upload
 } from 'lucide-react';
 import { encryptId } from '../utils/encryption';
 
@@ -13,18 +13,29 @@ import { encryptId } from '../utils/encryption';
  * Groups: Overview, Academic Setup, Examination, Operations
  */
 function useNavGroups(userType, hasPermission) {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const urlEncryptedProjId = searchParams.get('projectId');
+  const urlUniversityId = searchParams.get('universityId');
+
   const selectedProjectId = sessionStorage.getItem('selectedProjectId');
-  const encryptedProjId = selectedProjectId ? encryptId(selectedProjectId) : '';
+  const encryptedProjId = urlEncryptedProjId || (selectedProjectId ? encryptId(selectedProjectId) : '');
+  const univParam = urlUniversityId ? `&universityId=${urlUniversityId}` : '';
 
   const papersPath =
     userType === 'admin'
-      ? encryptedProjId ? `/admin/papers?projectId=${encryptedProjId}` : '/admin/papers'
-      : encryptedProjId ? `/papers?projectId=${encryptedProjId}` : '/papers';
+      ? encryptedProjId ? `/admin/papers?projectId=${encryptedProjId}${univParam}` : '/admin/papers'
+      : encryptedProjId ? `/papers?projectId=${encryptedProjId}${univParam}` : '/papers';
 
   const allocationPath =
     userType === 'admin'
-      ? encryptedProjId ? `/admin/allocate-scripts?projectId=${encryptedProjId}` : '/admin/allocate-scripts'
-      : encryptedProjId ? `/allocate-scripts?projectId=${encryptedProjId}` : '/allocate-scripts';
+      ? encryptedProjId ? `/admin/allocate-scripts?projectId=${encryptedProjId}${univParam}` : '/admin/allocate-scripts'
+      : encryptedProjId ? `/allocate-scripts?projectId=${encryptedProjId}${univParam}` : '/allocate-scripts';
+
+  const importQpPath =
+    userType === 'admin'
+      ? encryptedProjId ? `/admin/import-question-papers?projectId=${encryptedProjId}${univParam}` : '/admin/import-question-papers'
+      : encryptedProjId ? `/import-question-papers?projectId=${encryptedProjId}${univParam}` : '/import-question-papers';
 
   if (userType === 'admin') {
     const groups = [
@@ -49,6 +60,7 @@ function useNavGroups(userType, hasPermission) {
         items: [
           { label: 'Section Masters',     path: '/admin/section-masters', icon: Layers },
           { label: 'Question Types',      path: '/admin/question-types',  icon: Layers },
+          { label: 'Bulk Import Q.P.',    path: importQpPath,             icon: Upload },
         ],
       },
     ];
@@ -87,6 +99,7 @@ function useNavGroups(userType, hasPermission) {
           { label: 'Projects',            path: '/projects', icon: BookMarked },
           { label: 'Section Masters',     path: '/section-masters', icon: Layers },
           { label: 'Question Types',      path: '/question-types', icon: Layers },
+          { label: 'Bulk Import Q.P.',    path: importQpPath, icon: Upload },
         ],
       },
     ];

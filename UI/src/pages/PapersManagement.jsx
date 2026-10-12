@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { 
   FileText, Plus, Edit2, UserPlus, X, Search, CheckCircle2, Trash2, 
-  ChevronLeft, ChevronRight, ChevronDown, Filter, Users, BookOpen, Layers, Folder, AlertCircle, Copy, Upload, Info, Settings
+  ChevronRight, ChevronDown, Filter, Users, BookOpen, Layers, Folder, AlertCircle, Copy, Upload, Info, Settings, Loader
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useBreadcrumb } from "../context/BreadcrumbContext";
@@ -141,6 +141,22 @@ export default function PapersManagement({ isTab = false }) {
   });
 
   const [selectedPaperIds, setSelectedPaperIds] = useState([]);
+  const [activeInnerTab, setActiveInnerTab] = useState('papers-sections'); // 'papers-sections' | 'import-papers'
+
+  // Import functionality state
+  const [importProjects, setImportProjects] = useState([]);
+  const [selectedSourceProject, setSelectedSourceProject] = useState('');
+  const [importPapers, setImportPapers] = useState([]);
+  const [selectedImportPaperIds, setSelectedImportPaperIds] = useState([]);
+  const [loadingImportProjects, setLoadingImportProjects] = useState(false);
+  const [loadingImportPapers, setLoadingImportPapers] = useState(false);
+  const [importing, setImporting] = useState(false);
+  
+  // Pagination state for import papers
+  const [importPage, setImportPage] = useState(1);
+  const [importPageSize, setImportPageSize] = useState(10);
+  const [importSearchTerm, setImportSearchTerm] = useState('');
+
 
   // Modals state
   const [showForm, setShowForm] = useState(false);
@@ -196,6 +212,70 @@ export default function PapersManagement({ isTab = false }) {
   useEffect(() => {
     fetchInitialData();
   }, [subjectId, projectId, activeUniversityId]);
+
+  // Load import projects when switching to import tab
+  useEffect(() => {
+    const loadImportProjects = async () => {
+      if (activeInnerTab !== 'import-papers') return;
+      
+      try {
+        setLoadingImportProjects(true);
+        const projs = await projectService.getAllProjects(activeUniversityId, { pageSize: 0 });
+        const projectsData = projs?.items || projs || [];
+        
+        // Filter out current project and add master option
+        const filteredProjects = projectsData.filter(p => String(p.projectId) !== String(projectId));
+        const projectsWithMaster = [
+          { projectId: 'master', projectName: 'Master Papers', isMaster: true },
+          ...filteredProjects
+        ];
+        
+        setImportProjects(projectsWithMaster);
+      } catch (err) {
+        console.error('Failed to load import projects:', err);
+        setImportProjects([]);
+      } finally {
+        setLoadingImportProjects(false);
+      }
+    };
+
+    if (activeInnerTab === 'import-papers') {
+      loadImportProjects();
+    }
+  }, [activeInnerTab, activeUniversityId, projectId]);
+
+  // Load papers from selected import project
+  useEffect(() => {
+    const loadImportPapers = async () => {
+      if (!selectedSourceProject) {
+        setImportPapers([]);
+        return;
+      }
+      
+      try {
+        setLoadingImportPapers(true);
+        let papersData = [];
+        
+        if (selectedSourceProject === 'master') {
+          const res = await paperService.getPapers({ universityId: activeUniversityId, isMaster: true, pageSize: 0 });
+          papersData = res.items || res;
+        } else {
+          const res = await paperService.getPapers({ projectId: selectedSourceProject, pageSize: 0 });
+          papersData = res.items || res;
+        }
+        
+        setImportPapers(papersData || []);
+        setSelectedImportPaperIds([]);
+      } catch (err) {
+        console.error('Failed to load import papers:', err);
+        setImportPapers([]);
+      } finally {
+        setLoadingImportPapers(false);
+      }
+    };
+    
+    loadImportPapers();
+  }, [selectedSourceProject, activeUniversityId]);
 
   const fetchInitialData = async () => {
     try {
@@ -533,6 +613,66 @@ export default function PapersManagement({ isTab = false }) {
     refreshTable();
   };
 
+  // Import functionality handlers
+  const handleImportSelectAll = () => {
+    if (selectedImportPaperIds.length === importPapers.length && importPapers.length > 0) {
+      setSelectedImportPaperIds([]);
+    } else {
+      setSelectedImportPaperIds(importPapers.map(p => p.paperId));
+    }
+  };
+
+  const handleToggleImportPaper = (paperId) => {
+    setSelectedImportPaperIds(prev => 
+      prev.includes(paperId) 
+        ? prev.filter(id => id !== paperId)
+        : [...prev, paperId]
+    );
+  };
+
+  // Filter and paginate import papers
+  const getFilteredImportPapers = () => {
+    let filtered = [...importPapers];
+    
+    if (importSearchTerm) {
+      const query = importSearchTerm.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.paperName?.toLowerCase().includes(query) ||
+        p.paperCode?.toLowerCase().includes(query) ||
+        p.catchNo?.toLowerCase().includes(query)
+      );
+    }
+    
+    const totalCount = filtered.length;
+    const totalPages = Math.ceil(totalCount / importPageSize);
+    const startIdx = (importPage - 1) * importPageSize;
+    const paginatedPapers = filtered.slice(startIdx, startIdx + importPageSize);
+    
+    return { papers: paginatedPapers, totalCount, totalPages };
+  };
+
+  const handleImportPapers = async () => {
+    if (selectedImportPaperIds.length === 0) return;
+
+    setImporting(true);
+    try {
+      await paperService.importPapers({
+        sourcePaperIds: selectedImportPaperIds,
+        targetProjectId: projectId
+      });
+      message.success(`Successfully imported ${selectedImportPaperIds.length} papers`);
+      
+      // Switch back to papers-sections tab and refresh
+      setActiveInnerTab('papers-sections');
+      setSelectedImportPaperIds([]);
+      refreshTable();
+    } catch (err) {
+      message.error("Failed to import papers: " + (err.response?.data?.message || err.message));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const SortHeader = ({ label, field, isCenter = false, hasFilter = false, customFilter, filterOptions }) => {
     const isSorted = sortField === field;
     return (
@@ -556,20 +696,8 @@ export default function PapersManagement({ isTab = false }) {
   return (
     <div className="min-h-screen bg-gray-50/50 pb-12 w-full">
       {!isTab && (
-        <div className="bg-white border-b border-gray-200 lg:px-10 py-6 mb-6 shadow-sm sticky top-0 z-20 md:px-6 px-4">
+        <div className="bg-white border-b border-gray-200 px-6 lg:px-10 pb-0 pt-6 shadow-sm sticky top-0 z-20">
           <ProjectConfigHeader />
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2">
-            <div className="flex items-center gap-4">
-              <Link to="/admin/dashboard" className="p-2.5 hover:bg-gray-100 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 transition">
-                <ChevronLeft size={16} />
-              </Link>
-              <div>
-                <h1 className="text-lg font-black text-gray-900 mt-1 flex items-center gap-2 leading-tight">
-                  <FileText className="text-teal-700" size={18} /> Papers Management
-                </h1>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -583,10 +711,11 @@ export default function PapersManagement({ isTab = false }) {
         </div>
       ) : (
         <>
-      {/* Heading is now handled by ProjectConfigHeader in ProjectDashboard */}
+        {/* Heading is now handled by ProjectConfigHeader in ProjectDashboard */}
 
-          <div className="w-full space-y-4">
-        
+        {/* ── PAPERS & SECTIONS TAB CONTENT ─────────────────────── */}
+        {activeInnerTab === 'papers-sections' && (
+        <>
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-gray-100 relative max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200 p-4 md:p-6">
@@ -924,67 +1053,78 @@ export default function PapersManagement({ isTab = false }) {
 
         {/* Papers Main Table Area */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gray-50/40">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search papers by name/code..."
-                  value={tableSearch}
-                  onChange={(e) => setTableSearch(e.target.value)}
-                  className="pl-9 pr-4 py-2 text-xs font-semibold bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 w-full sm:w-64 shadow-sm"
-                />
+          {/* ── TOOLBAR: Tabs left | Actions right ── */}
+          <div className="flex items-center border-b border-gray-100 bg-white">
+            {/* LEFT: Tab switcher (inline, borderless) */}
+            {projectId && (
+              <div className="flex items-stretch h-full shrink-0">
+                <button
+                  onClick={() => setActiveInnerTab('papers-sections')}
+                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap ${
+                    activeInnerTab === 'papers-sections'
+                      ? 'border-teal-600 text-teal-700 bg-teal-50/50'
+                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                  }`}
+                >
+                  <FileText size={13} />
+                  Papers & Sections
+                </button>
+                <button
+                  onClick={() => setActiveInnerTab('import-papers')}
+                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap ${
+                    activeInnerTab === 'import-papers'
+                      ? 'border-indigo-500 text-indigo-600 bg-indigo-50/50'
+                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                  }`}
+                >
+                  <Folder size={13} />
+                  Import from Project
+                </button>
               </div>
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-2.5 justify-end">
-              {/* Bulk Actions */}
+            )}
+
+            {/* DIVIDER */}
+            <div className="flex-1" />
+
+            {/* RIGHT: Bulk actions + Search + Add Paper */}
+            <div className="flex items-center gap-2 px-4 py-3">
+              {/* Bulk section allocation (shown only when papers selected) */}
               {selectedPaperIds.length > 0 && (
-                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4 duration-300 mr-2 sm:mr-4 border-r border-gray-200 pr-2 sm:pr-4">
-                  <button
-                    onClick={() => setShowImportSectionsModal(true)}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[10px] uppercase tracking-wider px-3 py-2 rounded-md transition-all shadow-sm flex items-center gap-1.5"
-                    title="Allocate Sections to Selected"
-                  >
-                    <Copy size={13} /> <span className="hidden sm:inline">Allocate Sections</span>
-                  </button>
-                </div>
+                <button
+                  onClick={() => setShowImportSectionsModal(true)}
+                  className="animate-in fade-in slide-in-from-right-2 duration-200 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[10px] uppercase tracking-wider px-3 py-2 rounded-lg transition-all shadow-sm flex items-center gap-1.5 whitespace-nowrap"
+                  title="Allocate Sections to Selected"
+                >
+                  <Copy size={12} />
+                  <span className="hidden sm:inline">Allocate Sections</span>
+                  <span className="sm:hidden">{selectedPaperIds.length}</span>
+                </button>
               )}
 
-              {projectId && (
-                <>
-                  <button
-                    onClick={() => {
-                      const importQpPath = userType === 'admin' ? '/admin/import-question-papers' : '/import-question-papers';
-                      navigate(`${importQpPath}?projectId=${encryptedProjectId}&universityId=${activeUniversityId}`);
-                    }}
-                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-extrabold text-[10px] uppercase tracking-wider px-3 py-2.5 rounded-md border border-emerald-200 transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap"
-                  >
-                    <Upload size={13} /> Bulk Import Q.P. <span className="hidden xl:inline">(Catch-wise)</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      const importPath = userType === 'admin' ? '/admin/import-papers' : '/import-papers';
-                      navigate(`${importPath}?projectId=${encryptedProjectId}&universityId=${activeUniversityId}`);
-                    }}
-                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold text-[10px] uppercase tracking-wider px-3 py-2.5 rounded-md border border-indigo-200 transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap"
-                  >
-                    <Folder size={13} /> Import Papers <span className="hidden xl:inline">(From Project)</span>
-                  </button>
-                </>
-              )}
+              {/* Search */}
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search papers..."
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                  className="pl-8 pr-3 py-2 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white w-44 transition-all shadow-none"
+                />
+              </div>
+
+              {/* Add Paper */}
               <button
                 onClick={() => {
                   setFormData({
-                    paperCode: "", paperName: "", paperNumber: 1, maxMarks: 100, totalQuestions: "", description: "", 
+                    paperCode: "", paperName: "", paperNumber: 1, maxMarks: 100, totalQuestions: "", description: "",
                     catchNo: "", projectId: projectId || "", isActive: true, questionPaperPdfUrl: "",
                   });
                   setSelectedSubjects([]);
                   setEditingId(null);
                   setShowForm(true);
                 }}
-                className="font-extrabold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-md transition-all flex items-center gap-1.5 shadow-sm border whitespace-nowrap bg-teal-700 hover:bg-teal-800 text-white border-teal-600"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-extrabold bg-teal-700 hover:bg-teal-800 text-white shadow-sm transition-all whitespace-nowrap"
               >
                 <Plus size={13} /> Add Paper
               </button>
@@ -1520,7 +1660,6 @@ export default function PapersManagement({ isTab = false }) {
             </div>
             </div>
         )}
-        {/* Hidden Table File Input for Question Paper Upload */}
         <input
           type="file"
           ref={tableFileInputRef}
@@ -1528,7 +1667,201 @@ export default function PapersManagement({ isTab = false }) {
           style={{ display: "none" }}
           onChange={handleTableFileChange}
         />
-      </div>
+          </>
+          )}
+
+          {/* ── IMPORT PAPERS TAB CONTENT ──────────────────────────── */}
+          {activeInnerTab === 'import-papers' && projectId && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mt-6">
+              {/* Import Papers Toolbar */}
+              <div className="flex items-center border-b border-gray-100 bg-white px-4 py-3">
+                {/* LEFT: Tab Switcher */}
+                <div className="flex border-b-0">
+                  <button
+                    onClick={() => setActiveInnerTab('papers-sections')}
+                    className={`flex items-center gap-2 px-4 py-3 text-xs font-extrabold uppercase tracking-wider transition-all border-b-2 ${
+                      activeInnerTab === 'papers-sections'
+                        ? 'text-teal-700 border-teal-700'
+                        : 'text-gray-500 border-transparent hover:text-gray-700'
+                    }`}
+                  >
+                    <FileText size={14} />
+                    Papers & Sections
+                  </button>
+                  <button
+                    onClick={() => setActiveInnerTab('import-papers')}
+                    className={`flex items-center gap-2 px-4 py-3 text-xs font-extrabold uppercase tracking-wider transition-all border-b-2 ${
+                      activeInnerTab === 'import-papers'
+                        ? 'text-teal-700 border-teal-700'
+                        : 'text-gray-500 border-transparent hover:text-gray-700'
+                    }`}
+                  >
+                    <Folder size={14} />
+                    Import from Project
+                  </button>
+                </div>
+
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* RIGHT: Import button + Project selector + Search */}
+                <div className="flex items-center gap-3">
+                  {/* Import button (show when papers selected) */}
+                  {selectedImportPaperIds.length > 0 && (
+                    <button
+                      onClick={handleImportPapers}
+                      disabled={importing}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-extrabold text-white shadow-sm transition-all whitespace-nowrap ${
+                        importing
+                          ? 'bg-gray-300 cursor-not-allowed'
+                          : 'bg-teal-700 hover:bg-teal-800'
+                      }`}
+                    >
+                      {importing ? (
+                        <Loader size={13} className="animate-spin" />
+                      ) : (
+                        <Folder size={13} />
+                      )}
+                      {importing ? 'Importing...' : `Import ${selectedImportPaperIds.length} Papers`}
+                    </button>
+                  )}
+
+                  {/* Project selector */}
+                  <div className="flex items-center gap-2">
+                   
+                    <div className="relative">
+                      {loadingImportProjects ? (
+                        <div className="flex items-center gap-2 text-gray-500 text-sm p-2">
+                          <Loader size={16} className="animate-spin text-teal-700" />
+                          <span className="font-semibold">Loading...</span>
+                        </div>
+                      ) : importProjects.length === 0 ? (
+                        <div className="text-sm text-amber-700 font-semibold">No projects found</div>
+                      ) : (
+                        <select
+                          value={selectedSourceProject}
+                          onChange={(e) => setSelectedSourceProject(e.target.value)}
+                          className="bg-white border border-gray-200 hover:border-gray-300 focus:border-teal-500 rounded-lg text-xs font-bold text-gray-800 px-2 py-1.5 pr-6 min-w-[200px] outline-none appearance-none cursor-pointer"
+                        >
+                          <option value="" disabled>-- Select a project --</option>
+                          {importProjects.map((proj) => (
+                            <option key={proj.projectId} value={proj.projectId}>
+                              {proj.projectName} {proj.projectId !== 'master' && `(PRJ-${proj.projectId})`}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Search */}
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search papers..."
+                      value={importSearchTerm}
+                      onChange={(e) => {
+                        setImportSearchTerm(e.target.value);
+                        setImportPage(1); // Reset to first page when searching
+                      }}
+                      className="pl-8 pr-3 py-2 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white w-44 transition-all shadow-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Import Papers Table Content */}
+              {!selectedSourceProject ? (
+                <div className="p-16 text-center">
+                  <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Select a source project to view papers</p>
+                  <p className="text-xs font-medium text-gray-500 mt-2">Choose a project from the dropdown above to see available papers for import</p>
+                </div>
+              ) : loadingImportPapers ? (
+                <div className="p-16 text-center">
+                  <div className="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loading Papers...</p>
+                </div>
+              ) : importPapers.length === 0 ? (
+                <div className="p-16 text-center">
+                  <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">No Papers Found in Selected Project</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                      <tr>
+                        <th className="px-5 py-3.5 w-12 text-center border-b border-gray-100">
+                          <input 
+                            type="checkbox" 
+                            checked={getFilteredImportPapers().papers.length > 0 && selectedImportPaperIds.length === getFilteredImportPapers().papers.length} 
+                            onChange={handleImportSelectAll} 
+                            className="rounded border-gray-300 text-teal-700 focus:ring-teal-500 cursor-pointer w-4 h-4"
+                          />
+                        </th>
+                        <th className="px-5 py-3.5 border-b border-gray-100">Paper Details</th>
+                        <th className="px-5 py-3.5 border-b border-gray-100">Paper Code</th>
+                        <th className="px-5 py-3.5 border-b border-gray-100">Subjects</th>
+                        <th className="px-5 py-3.5 text-center border-b border-gray-100">Max Marks</th>
+                        <th className="px-5 py-3.5 text-center border-b border-gray-100">Sections</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-xs font-bold text-gray-700">
+                      {getFilteredImportPapers().papers.map(paper => {
+                        const isSelected = selectedImportPaperIds.includes(paper.paperId);
+                        return (
+                          <tr key={paper.paperId} className={`hover:bg-gray-50/50 transition-colors ${isSelected ? 'bg-teal-50/30' : ''}`}>
+                            <td className="px-5 py-2.5 text-center">
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected}
+                                onChange={() => handleToggleImportPaper(paper.paperId)}
+                                className="rounded border-gray-300 text-teal-700 focus:ring-teal-500 cursor-pointer w-4 h-4"
+                              />
+                            </td>
+                            <td className="px-5 py-2.5">
+                              <div className="font-bold text-gray-900">
+                                {paper.paperName}
+                              </div>
+                            </td>
+                            <td className="px-5 py-2.5">
+                              <span className="font-mono bg-gray-100 text-gray-600 font-bold px-2 py-1 rounded-md text-[11px] uppercase tracking-wider">
+                                {paper.paperCode}
+                              </span>
+                            </td>
+                            <td className="px-5 py-2.5">
+                              <span className="text-gray-600 font-bold text-xs">
+                                {paper.subjectNames?.join(', ') || '—'}
+                              </span>
+                            </td>
+                            <td className="px-5 py-2.5 text-center font-bold text-gray-700">
+                              {paper.maxMarks}
+                            </td>
+                            <td className="px-5 py-2.5 text-center font-bold text-gray-700">
+                              {paper.sections?.length || 0}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  
+                  {/* Pagination */}
+                  <TablePagination 
+                    page={importPage}
+                    totalPages={getFilteredImportPapers().totalPages}
+                    totalCount={getFilteredImportPapers().totalCount}
+                    pageSize={importPageSize}
+                    setPage={setImportPage}
+                    setPageSize={setImportPageSize}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
         </>
       )}
     </div>

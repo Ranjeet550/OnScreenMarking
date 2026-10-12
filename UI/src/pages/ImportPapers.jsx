@@ -1,109 +1,126 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { 
-  X, 
-  Search, 
-  Folder, 
-  FileText, 
-  CheckSquare, 
-  Square,
-  AlertCircle,
+import {
+  Search,
+  Folder,
+  FileText,
   Loader,
-  ChevronLeft
+  Plus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBreadcrumb } from '../context/BreadcrumbContext';
-import { decryptId, encryptId } from '../utils/encryption';
-import apiCall from '../services/api';
+import { decryptId } from '../utils/encryption';
+import projectService from '../services/projectService';
 import paperService from '../services/paperService';
-import sectionService from '../services/sectionService';
 import message from '../services/messageService';
 import ProjectConfigHeader from '../components/ProjectConfigHeader';
 import { useTable } from "../services/tableService";
 import TablePagination from "../components/TablePagination";
 import ColumnFilter from "../components/ColumnFilter";
-import { useCallback } from "react";
 
-export default function ImportPapers() {
+export default function ImportPapers({ isTab = false, onSuccess = null, universityIdProp = null, projectIdProp = null }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { userType } = useAuth();
+  const { userType, universityId: userUniversityId } = useAuth();
   const { setBreadcrumb } = useBreadcrumb();
 
   const encryptedProjectId = searchParams.get("projectId");
-  const currentProjectId = encryptedProjectId ? decryptId(encryptedProjectId) : null;
-  const universityId = searchParams.get("universityId");
+  const projectId = projectIdProp || (encryptedProjectId ? decryptId(encryptedProjectId) : null);
+  const universityId = universityIdProp || searchParams.get("universityId");
+  const activeUniversityId = userType === "coordinator" ? userUniversityId : universityId;
 
   const [projects, setProjects] = useState([]);
   const [selectedSourceProject, setSelectedSourceProject] = useState('');
-  
-  const [allProjectPapers, setAllProjectPapers] = useState([]);
+  const [activeInnerTab, setActiveInnerTab] = useState('papers-sections'); // Start with Papers & Sections
+
+  // Separate states for each tab
+  const [currentProjectPapers, setCurrentProjectPapers] = useState([]); // For Papers & Sections tab
+  const [allProjectPapers, setAllProjectPapers] = useState([]); // For Import tab
   const [selectedPaperIds, setSelectedPaperIds] = useState([]);
-  
-  const [masterSections, setMasterSections] = useState([]);
-  const [selectedMasterSectionIds, setSelectedMasterSectionIds] = useState([]);
 
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [loadingPapers, setLoadingPapers] = useState(false);
+  const [loadingCurrentPapers, setLoadingCurrentPapers] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const importPapersPath = userType === 'admin' ? '/admin/import-papers' : '/import-papers';
-    setBreadcrumb([
-      { label: 'Paper Management', path: userType === 'admin' ? `/admin/papers?projectId=${encryptedProjectId}&universityId=${universityId}` : `/papers?projectId=${encryptedProjectId}&universityId=${universityId}`, icon: 'FileText' },
-      { label: 'Import Papers', path: `${importPapersPath}?projectId=${encryptedProjectId}&universityId=${universityId}`, icon: 'Folder' }
-    ]);
-  }, [userType, encryptedProjectId, universityId, setBreadcrumb]);
-
-  useEffect(() => {
-    if (universityId) {
-      fetchProjects();
+    if (!isTab) {
+      const papersPath = userType === 'admin' ? '/admin/papers' : '/papers';
+      setBreadcrumb([
+        { label: 'Import Papers', path: papersPath, icon: 'Folder' }
+      ]);
     }
-  }, [universityId]);
+  }, [userType, isTab, setBreadcrumb]);
 
+  // Load projects
   useEffect(() => {
-    if (selectedSourceProject) {
-      fetchPapersForProject(selectedSourceProject);
-    } else {
-      setAllProjectPapers([]);
-      setSelectedPaperIds([]);
-    }
-  }, [selectedSourceProject]);
-
-  const fetchProjects = async () => {
-    try {
-      setLoadingProjects(true);
-      setError(null);
-      const uniData = await apiCall(`/universities/${universityId}`);
-      const availableProjects = (uniData.projects || []).filter(
-        p => p.projectId.toString() !== currentProjectId?.toString()
-      );
-      setProjects([{ projectId: 'master', projectName: 'Master Subject Papers' }, ...availableProjects]);
-
+    const loadProjects = async () => {
       try {
-        const masters = await sectionService.getSectionMasters();
-        setMasterSections(masters || []);
-        if (masters && masters.length > 0) {
-          setSelectedMasterSectionIds(masters.map(m => m.id));
-        }
-      } catch (masterErr) {
-        console.error("Failed to load master sections", masterErr);
+        setLoadingProjects(true);
+        setError(null);
+        
+        console.log('Loading projects for university ID:', activeUniversityId);
+        
+        const projs = await projectService.getAllProjects(activeUniversityId, { pageSize: 0 });
+        const projectsData = projs?.items || projs || [];
+        console.log('Projects loaded:', projectsData);
+        
+        // Filter out current project and add master option
+        const filteredProjects = projectsData.filter(p => String(p.projectId) !== String(projectId));
+        
+        // Add master papers option at the beginning
+        const projectsWithMaster = [
+          { projectId: 'master', projectName: 'Master Papers', isMaster: true },
+          ...filteredProjects
+        ];
+        
+        console.log('Final projects list:', projectsWithMaster);
+        setProjects(projectsWithMaster);
+      } catch (err) {
+        console.error('Failed to load projects:', err);
+        setError("Failed to load projects");
+        setProjects([]);
+      } finally {
+        setLoadingProjects(false);
       }
-    } catch (err) {
-      setError("Failed to load projects from this university.");
-    } finally {
-      setLoadingProjects(false);
+    };
+    
+    if (activeUniversityId) {
+      loadProjects();
     }
-  };
+  }, [activeUniversityId, projectId]);
 
+  // Load current project papers for Papers & Sections tab
+  useEffect(() => {
+    const loadCurrentProjectPapers = async () => {
+      if (!projectId) return;
+      
+      try {
+        setLoadingCurrentPapers(true);
+        const res = await paperService.getPapers({ projectId, pageSize: 0 });
+        const papersData = res.items || res;
+        setCurrentProjectPapers(papersData || []);
+      } catch (err) {
+        console.error('Failed to load current project papers:', err);
+        setCurrentProjectPapers([]);
+      } finally {
+        setLoadingCurrentPapers(false);
+      }
+    };
+
+    // Only load when we're on Papers & Sections tab or on initial load
+    if (projectId && (activeInnerTab === 'papers-sections' || currentProjectPapers.length === 0)) {
+      loadCurrentProjectPapers();
+    }
+  }, [activeInnerTab, projectId, currentProjectPapers.length]);
+
+  // Fetch papers for selected source project (Import tab)
   const fetchPapersForProject = async (projId) => {
     try {
-      setLoadingPapers(true);
       setError(null);
       let papersData = [];
       if (projId === 'master') {
-        const res = await paperService.getPapers({ universityId, isMaster: true, pageSize: 0 });
+        const res = await paperService.getPapers({ universityId: activeUniversityId, isMaster: true, pageSize: 0 });
         papersData = res.items || res;
       } else {
         const res = await paperService.getPapers({ projectId: projId, pageSize: 0 });
@@ -114,71 +131,82 @@ export default function ImportPapers() {
     } catch (err) {
       setError("Failed to load papers.");
       setAllProjectPapers([]);
-    } finally {
-      setLoadingPapers(false);
     }
   };
 
   const fetchFn = useCallback(async (params) => {
-    if (!selectedSourceProject) return { items: [], totalCount: 0, page: 1, pageSize: params.pageSize || 10, totalPages: 1 };
+    let sourceData = [];
     
-    let filtered = [...allProjectPapers];
+    // Use different data sources based on active tab
+    if (activeInnerTab === 'papers-sections') {
+      // Papers & Sections tab - always use current project papers
+      sourceData = currentProjectPapers;
+    } else {
+      // Import tab - only return data if we have a selected source project AND loaded data
+      if (!selectedSourceProject || allProjectPapers.length === 0) {
+        return { items: [], totalCount: 0, page: 1, pageSize: params.pageSize || 10, totalPages: 1 };
+      }
+      sourceData = allProjectPapers;
+    }
+
+    // If no source data, return empty
+    if (!sourceData || sourceData.length === 0) {
+      return { items: [], totalCount: 0, page: 1, pageSize: params.pageSize || 10, totalPages: 1 };
+    }
+
+    let filtered = [...sourceData];
 
     if (params.search) {
       const q = params.search.toLowerCase();
-      filtered = filtered.filter(p => 
+      filtered = filtered.filter(p =>
         p.paperName?.toLowerCase().includes(q) ||
         p.paperCode?.toLowerCase().includes(q) ||
         p.catchNo?.toLowerCase().includes(q)
       );
     }
-    
+
     if (params.subjectNames && params.subjectNames.length > 0) {
       filtered = filtered.filter(p => {
         if (!p.subjectNames || p.subjectNames.length === 0) return false;
-        // Check if ANY of the paper's subjects matches ANY of the selected subjects
-        return params.subjectNames.some(selectedSub => 
+        return params.subjectNames.some(selectedSub =>
           p.subjectNames.some(paperSub => paperSub.toLowerCase().includes(selectedSub.toLowerCase()))
         );
       });
     }
+
     if (params.paperName) {
       const q = params.paperName.toLowerCase();
       filtered = filtered.filter(p => p.paperName?.toLowerCase().includes(q));
     }
+
     if (params.paperCode) {
-       const q = params.paperCode.toLowerCase();
-       filtered = filtered.filter(p => p.paperCode?.toLowerCase().includes(q));
+      const q = params.paperCode.toLowerCase();
+      filtered = filtered.filter(p => p.paperCode?.toLowerCase().includes(q));
     }
 
-    if (params.sortField) {
+    // Sort
+    if (params.sortField && params.sortOrder) {
       filtered.sort((a, b) => {
-        let valA = a[params.sortField] || '';
-        let valB = b[params.sortField] || '';
-        if (typeof valA === 'string') valA = valA.toLowerCase();
-        if (typeof valB === 'string') valB = valB.toLowerCase();
-        if (valA < valB) return params.sortOrder === 'asc' ? -1 : 1;
-        if (valA > valB) return params.sortOrder === 'asc' ? 1 : -1;
-        return 0;
+        const aVal = a[params.sortField] || '';
+        const bVal = b[params.sortField] || '';
+        if (params.sortOrder === 'asc') {
+          return aVal.toString().localeCompare(bVal.toString());
+        } else {
+          return bVal.toString().localeCompare(aVal.toString());
+        }
       });
     }
 
-    const totalCount = filtered.length;
-    const pageSize = params.pageSize || 10;
-    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    // Pagination
     const page = params.page || 1;
-    
-    const startIndex = (page - 1) * pageSize;
-    const paginatedItems = filtered.slice(startIndex, startIndex + pageSize);
+    const pageSize = params.pageSize || 10;
+    const totalCount = filtered.length;
+    const totalPages = Math.ceil(totalCount / pageSize);
+    const startIdx = (page - 1) * pageSize;
+    const items = filtered.slice(startIdx, startIdx + pageSize);
 
-    return {
-      items: paginatedItems,
-      totalCount,
-      totalPages,
-      page,
-      pageSize
-    };
-  }, [selectedSourceProject, allProjectPapers]);
+    return { items, totalCount, page, pageSize, totalPages };
+  }, [activeInnerTab, currentProjectPapers, selectedSourceProject, allProjectPapers]);
 
   const {
     items: papers,
@@ -203,8 +231,42 @@ export default function ImportPapers() {
   });
 
   useEffect(() => {
-    refreshTable();
-  }, [allProjectPapers]);
+    // Refresh table when data changes for the active tab
+    if (activeInnerTab === 'papers-sections' && currentProjectPapers.length > 0) {
+      refreshTable();
+    } else if (activeInnerTab === 'import-papers' && allProjectPapers.length > 0) {
+      refreshTable();
+    }
+  }, [currentProjectPapers, allProjectPapers, activeInnerTab, refreshTable]);
+
+  // Clear selected papers when switching tabs
+  useEffect(() => {
+    setSelectedPaperIds([]);
+  }, [activeInnerTab]);
+
+  // Refresh table when switching tabs
+  useEffect(() => {
+    // Small delay to ensure state has updated
+    const timer = setTimeout(() => {
+      refreshTable();
+    }, 50);
+    
+    return () => clearTimeout(timer);
+  }, [activeInnerTab, refreshTable]);
+
+  useEffect(() => {
+    if (selectedSourceProject) {
+      fetchPapersForProject(selectedSourceProject);
+    }
+  }, [selectedSourceProject]);
+
+  const handleSelectAll = () => {
+    if (selectedPaperIds.length === papers.length && papers.length > 0) {
+      setSelectedPaperIds([]);
+    } else {
+      setSelectedPaperIds(papers.map(p => p.paperId));
+    }
+  };
 
   const handleTogglePaper = (paperId) => {
     setSelectedPaperIds(prev => 
@@ -214,49 +276,38 @@ export default function ImportPapers() {
     );
   };
 
-  const handleSelectAll = () => {
-    if (selectedPaperIds.length === allProjectPapers.length) {
-      setSelectedPaperIds([]);
-    } else {
-      setSelectedPaperIds(allProjectPapers.map(p => p.paperId));
-    }
-  };
-
   const handleImport = async () => {
     if (selectedPaperIds.length === 0) return;
-    
+
+    setImporting(true);
     try {
-      setImporting(true);
-      setError(null);
+      await paperService.importPapers({
+        sourcePaperIds: selectedPaperIds,
+        targetProjectId: projectId
+      });
+      message.success(`Successfully imported ${selectedPaperIds.length} papers`);
       
-      const res = await paperService.importPapers(currentProjectId, selectedPaperIds, selectedMasterSectionIds);
-      
-      message.success(res.message || `Successfully imported ${selectedPaperIds.length} paper(s)!`);
-      navigate(-1);
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        navigate(-1);
+      }
     } catch (err) {
-      setError(err.message || "An error occurred while importing papers.");
+      message.error("Failed to import papers: " + (err.response?.data?.message || err.message));
     } finally {
       setImporting(false);
     }
   };
 
-  const handleCancel = () => {
-    navigate(-1);
-  };
-
-  const SortHeader = ({ label, field, isCenter = false, hasFilter = false }) => {
+  const SortHeader = ({ label, field, isCenter = false, hasFilter = false, filterOptions }) => {
     const isSorted = sortField === field;
     return (
-      <th onClick={() => handleSort(field)} className={`px-5 py-4 cursor-pointer hover:bg-gray-100 transition-colors select-none ${isCenter ? 'text-center' : ''}`}>
-        <div className={`flex flex-col gap-1`}>
-          <div className={`flex items-center gap-1 ${isCenter ? 'justify-center' : ''}`}>
-            <span>{label}</span>
-            <span className="text-[9px] text-gray-400">{isSorted ? (sortOrder === 'asc' ? ' ?' : ' ?') : ' ?'}</span>
-          </div>
+      <th onClick={() => handleSort(field)} className={`px-4 py-3 cursor-pointer hover:bg-gray-100 transition-colors select-none ${isCenter ? 'text-center' : ''}`}>
+        <div className={`flex items-center gap-1 ${isCenter ? 'justify-center' : ''}`}>
+          <span>{label}</span>
+          <span className="text-[9px] text-gray-400">{isSorted ? (sortOrder === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}</span>
           {hasFilter && (
-            <div onClick={(e) => e.stopPropagation()} className="mt-1">
-              <ColumnFilter columnKey={field} currentFilter={filters[field]} setFilter={setFilter} placeholder={`Filter ${label.toLowerCase()}...`} />
-            </div>
+            <ColumnFilter columnKey={field} currentFilter={filters[field]} setFilter={setFilter} placeholder={`Filter ${label.toLowerCase()}...`} options={filterOptions} />
           )}
         </div>
       </th>
@@ -264,348 +315,354 @@ export default function ImportPapers() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50/50 pb-12 w-full">
-      <div className="bg-white border-b border-gray-200 px-6 lg:px-10 py-6 mb-6 shadow-sm sticky top-0 z-20">
-        <ProjectConfigHeader />
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2">
-          <div className="flex items-center gap-4">
-            <button onClick={handleCancel} className="p-2.5 hover:bg-gray-100 rounded-md border border-gray-200 bg-gray-50 text-gray-600 transition">
-              <ChevronLeft size={16} />
-            </button>
-            <div>
-              <h1 className="text-lg font-black text-gray-900 mt-1 flex items-center gap-2 leading-tight">
-                <Folder className="text-teal-700" size={18} /> Import Papers
-              </h1>
-            </div>
-          </div>
+    <div className={isTab ? 'w-full' : 'min-h-screen bg-gray-50/50 pb-12 w-full'}>
+      {!isTab && (
+        <div className="bg-white border-b border-gray-200 px-6 lg:px-10 pb-0 pt-6 shadow-sm sticky top-0 z-20">
+          <ProjectConfigHeader />
         </div>
-      </div>
+      )}
 
-      <div className="px-6 lg:px-10 max-w-[1600px] mx-auto">
-        <div className="bg-white rounded-[32px] shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] flex flex-col xl:flex-row min-h-[70vh] border border-gray-200 overflow-hidden">
-          
-          {/* LEFT SIDEBAR - Configuration & Filters */}
-          <div className="w-full xl:w-[420px] bg-gray-50/80 border-b xl:border-b-0 xl:border-r border-gray-200 flex flex-col shrink-0 relative">
-            <div className="p-8 pb-6">
-              <div className="w-14 h-14 bg-gradient-to-br from-teal-600 to-indigo-600 rounded-xl flex items-center justify-center text-white mb-6 shadow-lg shadow-teal-600/20">
-                <Folder size={28} strokeWidth={2.5} />
-              </div>
-              <h2 className="text-3xl font-black text-gray-900 tracking-tight leading-tight">
-                Import<br/>Papers.
-              </h2>
-              <p className="text-sm text-gray-500 font-medium mt-3 leading-relaxed">
-                Clone paper structures seamlessly from existing academic setups or other projects.
-              </p>
-            </div>
-
-            <div className="px-8 flex-1 overflow-y-auto custom-scrollbar pb-8 space-y-8">
-              {/* Source Project */}
-              <div className="space-y-3">
-                <label className="flex items-center gap-2 text-xs font-black text-gray-400 uppercase tracking-widest">
-                  <span className="w-4 h-0.5 bg-gray-300 rounded-full"></span> Source Project
-                </label>
-                {loadingProjects ? (
-                  <div className="flex items-center gap-3 text-gray-500 text-sm p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-                    <Loader size={18} className="animate-spin text-teal-700" />
-                    <span className="font-semibold">Loading projects...</span>
-                  </div>
-                ) : projects.length === 0 ? (
-                  <div className="p-4 bg-amber-50 text-amber-700 rounded-xl border border-amber-200 text-sm font-semibold">
-                    No other projects found.
-                  </div>
-                ) : (
-                  <div className="relative group">
-                    <select
-                      value={selectedSourceProject}
-                      onChange={(e) => setSelectedSourceProject(e.target.value)}
-                      className="w-full p-4 pl-5 pr-10 bg-white border border-gray-200 hover:border-gray-300 focus:border-teal-500 rounded-xl text-sm font-bold text-gray-800 shadow-sm transition-all outline-none appearance-none cursor-pointer"
-                    >
-                      <option value="" disabled>-- Select a project --</option>
-                      {projects.map((proj) => (
-                        <option key={proj.projectId} value={proj.projectId}>
-                          {proj.projectName} {proj.projectId !== 'master' && `(PRJ-${proj.projectId})`}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 group-hover:text-gray-600 transition-colors">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {selectedSourceProject && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
-                  {/* Search */}
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2 text-xs font-black text-gray-400 uppercase tracking-widest">
-                      <span className="w-4 h-0.5 bg-gray-300 rounded-full"></span> Search Papers
-                    </label>
-                    <div className="relative group">
-                      <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
-                      <input
-                        type="text"
-                        placeholder="Type name, code or catch no..."
-                        value={tableSearch}
-                        onChange={(e) => setTableSearch(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none shadow-sm transition-all"
-                      />
-                    </div>
-                  </div>
-                  {/* Subject Filters */}
-                  {(() => {
-                    const availableSubjects = [...new Set(allProjectPapers.flatMap(p => p.subjectNames || []))].filter(Boolean);
-                    if (availableSubjects.length === 0) return null;
-                    
-                    const selectedSubjects = filters.subjectNames || [];
-                    
-                    const toggleSubject = (sub) => {
-                      let newSubjects = [...selectedSubjects];
-                      if (newSubjects.includes(sub)) {
-                        newSubjects = newSubjects.filter(s => s !== sub);
-                      } else {
-                        newSubjects.push(sub);
-                      }
-                      setFilter('subjectNames', newSubjects.length > 0 ? newSubjects : null);
-                    };
-
-                    return (
-                      <div className="space-y-4 pt-4 border-t border-gray-200">
-                        <div className="flex items-center justify-between">
-                          <label className="flex items-center gap-2 text-xs font-black text-gray-400 uppercase tracking-widest">
-                            <span className="w-4 h-0.5 bg-gray-300 rounded-full"></span> Filter Subjects
-                          </label>
-                          {selectedSubjects.length > 0 && (
-                            <button 
-                              onClick={() => setFilter('subjectNames', null)}
-                              className="text-[10px] font-bold text-teal-700 hover:text-teal-800 uppercase tracking-wider"
-                            >
-                              Clear all
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => setFilter('subjectNames', null)}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
-                              selectedSubjects.length === 0
-                                ? 'bg-gray-800 text-white shadow-md shadow-gray-800/20'
-                                : 'bg-white border border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-800 hover:shadow-sm'
-                            }`}
-                          >
-                            All
-                          </button>
-                          {availableSubjects.map(sub => (
-                            <button
-                              key={sub}
-                              onClick={() => toggleSubject(sub)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
-                                selectedSubjects.includes(sub)
-                                  ? 'bg-teal-700 text-white shadow-md shadow-teal-600/20'
-                                  : 'bg-white border border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-800 hover:shadow-sm'
-                              }`}
-                            >
-                              {sub}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
+      <div className={isTab ? 'p-6 lg:p-8' : 'px-6 lg:px-10 max-w-[1600px] mx-auto mt-6'}>
+        {(!projectId && !isTab) ? (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-16 text-center">
+            <FileText size={48} className="mx-auto text-gray-200 mb-4" />
+            <h3 className="text-xl font-black text-gray-900 mb-2">Select a Project</h3>
+            <p className="text-sm font-semibold text-gray-500">
+              Please select a project from the dropdown above to view its papers and sections.
+            </p>
           </div>
-
-          {/* RIGHT MAIN CONTENT - Papers Selection */}
-          <div className="flex-1 flex flex-col bg-white relative">
-            {!selectedSourceProject ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-12 text-gray-400 min-h-[400px]">
-                <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-6">
-                  <FileText size={40} className="text-gray-300" strokeWidth={1.5} />
-                </div>
-                <h3 className="text-xl font-bold text-gray-700 mb-2">No Project Selected</h3>
-                <p className="text-sm text-center max-w-sm font-medium leading-relaxed">
-                  Choose a source project from the left panel to view and import its papers.
-                </p>
-              </div>
-            ) : tableLoading && allProjectPapers.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-12 text-gray-400 min-h-[400px]">
-                <Loader size={40} className="animate-spin text-teal-600 mb-4" strokeWidth={2} />
-                <p className="text-sm font-bold uppercase tracking-wider">Loading papers...</p>
-              </div>
-            ) : allProjectPapers.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-12 text-gray-400 min-h-[400px]">
-                <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-6">
-                  <FileText size={40} className="text-gray-300" strokeWidth={1.5} />
-                </div>
-                <h3 className="text-xl font-bold text-gray-700 mb-2">Project is Empty</h3>
-                <p className="text-sm text-center max-w-sm font-medium leading-relaxed">
-                  This project doesn't have any configured papers yet.
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col h-[70vh] xl:h-auto xl:flex-1">
-                {/* Top Action Bar */}
-                <div className="px-6 sm:px-10 pt-10 pb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-gray-100">
-                  <div>
-                    <h3 className="text-xl font-black text-gray-900 flex items-center gap-3">
-                      Available Papers
-                      <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-md text-xs font-bold">
-                        {totalCount} Total
-                      </span>
-                    </h3>
-                  </div>
-                  
-                  <button 
-                    onClick={handleSelectAll}
-                    className="group flex items-center justify-center gap-2 text-sm font-bold text-gray-600 hover:text-teal-700 transition-colors bg-white border border-gray-200 hover:border-teal-200 px-5 py-2.5 rounded-md shadow-sm"
-                  >
-                    <div className="relative w-5 h-5 flex items-center justify-center">
-                      {selectedPaperIds.length === allProjectPapers.length && allProjectPapers.length > 0 ? (
-                        <CheckSquare size={18} className="text-teal-700 absolute transition-all scale-100 opacity-100" />
-                      ) : (
-                        <>
-                          <Square size={18} className="text-gray-300 absolute transition-all scale-100 opacity-100 group-hover:opacity-0" />
-                          <CheckSquare size={18} className="text-teal-500 absolute transition-all scale-50 opacity-0 group-hover:scale-100 group-hover:opacity-100" />
-                        </>
-                      )}
-                    </div>
-                    {selectedPaperIds.length === allProjectPapers.length && allProjectPapers.length > 0 ? "Deselect All" : "Select All"}
-                  </button>
-                </div>
-
-                {error && (
-                  <div className="mx-6 sm:mx-10 mt-6 p-4 bg-red-50 text-red-700 border border-red-200 rounded-xl flex items-center gap-3 animate-in fade-in">
-                    <AlertCircle size={20} className="shrink-0" />
-                    <p className="text-sm font-bold">{error}</p>
-                  </div>
-                )}
-                
-                {/* Papers Grid Area */}
-                <div className="flex-1 overflow-y-auto p-6 sm:p-10 pt-6 custom-scrollbar bg-gray-50/30 min-h-[300px] relative">
-                  {tableLoading && (
-                    <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
-                      <Loader size={32} className="animate-spin text-teal-700" />
-                    </div>
-                  )}
-                  {papers.length === 0 ? (
-                    <div className="p-12 text-center text-sm font-bold text-gray-400 bg-white rounded-xl border border-gray-200 border-dashed">
-                      No papers match your current search and filters.
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm pb-1">
-                      <table className="w-full text-left text-sm whitespace-nowrap min-w-[700px]">
-                        <thead className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase text-[10px] font-black tracking-wider align-top">
-                          <tr>
-                            <th className="px-5 py-4 w-12 text-center"></th>
-                            <SortHeader label="Paper Details" field="paperName" hasFilter={true} />
-                            <SortHeader label="Paper Code" field="paperCode" hasFilter={true} />
-                            <SortHeader label="Subjects" field="subjectNames" />
-                            <SortHeader label="Max Marks" field="maxMarks" />
-                            <th className="px-5 py-4 text-right">Sections</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {papers.map(paper => {
-                            const isSelected = selectedPaperIds.includes(paper.paperId);
-                            return (
-                              <tr 
-                                key={paper.paperId}
-                                onClick={() => handleTogglePaper(paper.paperId)}
-                                className={`cursor-pointer transition-colors group ${
-                                  isSelected ? 'bg-teal-50/50 hover:bg-teal-50' : 'hover:bg-gray-50/80'
-                                }`}
-                              >
-                                <td className="px-5 py-2.5 w-12 text-center">
-                                  <div className={`w-5 h-5 rounded-md flex items-center justify-center mx-auto transition-colors ${isSelected ? 'bg-teal-600 text-white shadow-sm' : 'bg-gray-100 text-gray-400 group-hover:bg-gray-200 border border-gray-200'}`}>
-                                    {isSelected ? <CheckSquare size={14} strokeWidth={3} /> : <Square size={14} />}
-                                  </div>
-                                </td>
-                                <td className="px-5 py-2.5">
-                                  <div className={`font-bold transition-colors ${isSelected ? 'text-teal-900' : 'text-gray-900'}`}>
-                                    {paper.paperName}
-                                  </div>
-                                </td>
-                                <td className="px-5 py-2.5">
-                                  <span className="font-mono bg-gray-100 text-gray-600 font-bold px-2 py-1 rounded-md text-[11px] uppercase tracking-wider">
-                                    {paper.paperCode}
-                                  </span>
-                                </td>
-                                <td className="px-5 py-2.5">
-                                  <span className="text-gray-600 font-bold text-xs">
-                                    {paper.subjectNames?.join(', ') || '�'}
-                                  </span>
-                                </td>
-                                <td className="px-5 py-2.5 text-right font-bold text-gray-700">
-                                  {paper.maxMarks}
-                                </td>
-                                <td className="px-5 py-2.5 text-right font-bold text-gray-700">
-                                  {paper.sections?.length || 0}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  
-                  {papers.length > 0 && (
-                    <div className="mt-4">
-                      <TablePagination 
-                        page={page} 
-                        totalPages={totalPages} 
-                        pageSize={pageSize} 
-                        setPage={setPage} 
-                        setPageSize={setPageSize} 
-                        totalCount={totalCount} 
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Action Footer */}
-                <div className="p-6 px-6 sm:px-10 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white">
-                  <div className="flex items-center justify-center sm:justify-start gap-3">
-                    <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-teal-50 text-teal-700 font-black text-lg">
-                      {selectedPaperIds.length}
-                    </span>
-                    <span className="text-sm font-bold text-gray-600">papers selected</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-center sm:justify-end gap-3 w-full sm:w-auto">
+        ) : (
+          <>
+            {/* Papers Main Table Area */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              {/* ── TOOLBAR: Tab switcher left | Conditional content right based on active tab ── */}
+              <div className="flex items-center border-b border-gray-100 bg-white">
+                {/* LEFT: Tab switcher */}
+                {projectId && (
+                  <div className="flex border-b-0">
                     <button
-                      onClick={handleCancel}
-                      className="flex-1 sm:flex-none px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors text-center"
-                      disabled={importing}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleImport}
-                      disabled={importing || selectedPaperIds.length === 0}
-                      className={`flex-1 sm:flex-none relative overflow-hidden flex items-center justify-center gap-2 px-8 py-4 text-sm font-black text-white rounded-xl transition-all shadow-lg ${
-                        importing || selectedPaperIds.length === 0
-                          ? 'bg-gray-300 cursor-not-allowed shadow-none text-gray-500'
-                          : 'bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-500 hover:to-indigo-500 hover:shadow-teal-600/30 hover:-translate-y-0.5 active:translate-y-0'
+                      onClick={() => setActiveInnerTab('papers-sections')}
+                      className={`flex items-center gap-2 px-4 py-3 text-xs font-extrabold uppercase tracking-wider transition-all border-b-2 ${
+                        activeInnerTab === 'papers-sections'
+                          ? 'text-teal-700 border-teal-700'
+                          : 'text-gray-500 border-transparent hover:text-gray-700'
                       }`}
                     >
-                      {importing ? (
-                        <Loader size={18} className="animate-spin" strokeWidth={3} />
-                      ) : (
-                        <Folder size={18} strokeWidth={2.5} />
-                      )}
-                      {importing ? 'IMPORTING...' : 'IMPORT PAPERS'}
+                      <FileText size={14} />
+                      Papers & Sections
+                    </button>
+                    <button
+                      onClick={() => setActiveInnerTab('import-papers')}
+                      className={`flex items-center gap-2 px-4 py-3 text-xs font-extrabold uppercase tracking-wider transition-all border-b-2 ${
+                        activeInnerTab === 'import-papers'
+                          ? 'text-teal-700 border-teal-700'
+                          : 'text-gray-500 border-transparent hover:text-gray-700'
+                      }`}
+                    >
+                      <Folder size={14} />
+                      Import from Project
                     </button>
                   </div>
+                )}
+
+                {/* DIVIDER */}
+                <div className="flex-1" />
+
+                {/* RIGHT: Conditional content based on active tab */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  {activeInnerTab === 'papers-sections' ? (
+                    <>
+                      {/* Papers & Sections Tab: Add Button + Search */}
+                      <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-extrabold text-white bg-teal-700 hover:bg-teal-800 shadow-sm transition-all whitespace-nowrap">
+                        <Plus size={13} />
+                        Add Paper
+                      </button>
+                      
+                      <div className="relative">
+                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search papers..."
+                          value={tableSearch}
+                          onChange={(e) => setTableSearch(e.target.value)}
+                          className="pl-8 pr-3 py-2 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white w-44 transition-all shadow-none"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Import Papers Tab: Import Button + Project Dropdown + Search */}
+                      {/* Import button (show when papers selected) - LEFT POSITION */}
+                      {selectedPaperIds.length > 0 && (
+                        <button
+                          onClick={handleImport}
+                          disabled={importing}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-extrabold text-white shadow-sm transition-all whitespace-nowrap ${
+                            importing
+                              ? 'bg-gray-300 cursor-not-allowed'
+                              : 'bg-teal-700 hover:bg-teal-800'
+                          }`}
+                        >
+                          {importing ? (
+                            <Loader size={13} className="animate-spin" />
+                          ) : (
+                            <Folder size={13} />
+                          )}
+                          {importing ? 'Importing...' : `Import ${selectedPaperIds.length} Papers`}
+                        </button>
+                      )}
+
+                      {/* Project selector - MIDDLE POSITION */}
+                      <div className="flex items-center gap-2">
+                        
+                        <div className="relative">
+                          {loadingProjects ? (
+                            <div className="flex items-center gap-2 text-gray-500 text-sm p-2">
+                              <Loader size={16} className="animate-spin text-teal-700" />
+                              <span className="font-semibold">Loading...</span>
+                            </div>
+                          ) : projects.length === 0 ? (
+                            <div className="text-sm text-amber-700 font-semibold">No projects found</div>
+                          ) : (
+                            <select
+                              value={selectedSourceProject}
+                              onChange={(e) => setSelectedSourceProject(e.target.value)}
+                              className="bg-white border border-gray-200 hover:border-gray-300 focus:border-teal-500 rounded-lg text-sm font-bold text-gray-800 px-3 py-2 pr-8 min-w-[200px] outline-none appearance-none cursor-pointer"
+                            >
+                              <option value="" disabled>-- Select a project --</option>
+                              {projects.map((proj) => (
+                                <option key={proj.projectId} value={proj.projectId}>
+                                  {proj.projectName} {proj.projectId !== 'master' && `(PRJ-${proj.projectId})`}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Search - RIGHT POSITION */}
+                      <div className="relative">
+                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search papers..."
+                          value={tableSearch}
+                          onChange={(e) => setTableSearch(e.target.value)}
+                          className="pl-8 pr-3 py-2 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white w-44 transition-all shadow-none"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        </div>
+
+              {/* Content based on active tab */}
+              {activeInnerTab === 'papers-sections' ? (
+                <>
+                  {/* PAPERS & SECTIONS TAB - Show current project's papers */}
+                  {loadingCurrentPapers ? (
+                    <div className="p-16 text-center">
+                      <div className="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loading Current Project Papers...</p>
+                    </div>
+                  ) : currentProjectPapers.length === 0 ? (
+                    <div className="p-16 text-center">
+                      <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                      <p className="text-xs font-bold uppercase tracking-wider text-gray-400">No Papers Found in Current Project</p>
+                      <p className="text-xs font-medium text-gray-500 mt-2">Add papers to see them here</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                          <tr>
+                            <th className="px-5 py-3.5 w-12 text-center border-b border-gray-100">
+                              <input 
+                                type="checkbox" 
+                                checked={papers.length > 0 && selectedPaperIds.length === papers.length} 
+                                onChange={handleSelectAll} 
+                                className="rounded border-gray-300 text-teal-700 focus:ring-teal-500 cursor-pointer w-4 h-4"
+                              />
+                            </th>
+                            <SortHeader label="Paper Details" field="paperName" hasFilter={true} />
+                            <SortHeader label="Paper Code" field="paperCode" hasFilter={true} />
+                            <SortHeader label="Subjects" field="subjectNames" hasFilter={true} />
+                            <SortHeader label="Max Marks" field="maxMarks" />
+                            <th className="px-5 py-3.5 text-center border-b border-gray-100">Sections</th>
+                            <th className="px-5 py-3.5 text-center border-b border-gray-100">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-xs font-bold text-gray-700">
+                          {papers.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="px-5 py-16 text-center">
+                                <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                                <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                                  {tableSearch || Object.keys(filters).some(k => filters[k]) ? 'No papers match your search/filter criteria' : 'No papers found'}
+                                </p>
+                              </td>
+                            </tr>
+                          ) : (
+                            papers.map(paper => {
+                              const isSelected = selectedPaperIds.includes(paper.paperId);
+                              return (
+                                <tr key={paper.paperId} className={`hover:bg-gray-50/50 transition-colors ${isSelected ? 'bg-teal-50/30' : ''}`}>
+                                  <td className="px-5 py-2.5 text-center">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={isSelected}
+                                      onChange={() => handleTogglePaper(paper.paperId)}
+                                      className="rounded border-gray-300 text-teal-700 focus:ring-teal-500 cursor-pointer w-4 h-4"
+                                    />
+                                  </td>
+                                  <td className="px-5 py-2.5">
+                                    <div className="font-bold text-gray-900">
+                                      {paper.paperName}
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-2.5">
+                                    <span className="font-mono bg-gray-100 text-gray-600 font-bold px-2 py-1 rounded-md text-[11px] uppercase tracking-wider">
+                                      {paper.paperCode}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-2.5">
+                                    <span className="text-gray-600 font-bold text-xs">
+                                      {paper.subjectNames?.join(', ') || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-2.5 text-center font-bold text-gray-700">
+                                    {paper.maxMarks}
+                                  </td>
+                                  <td className="px-5 py-2.5 text-center font-bold text-gray-700">
+                                    {paper.sections?.length || 0}
+                                  </td>
+                                  <td className="px-5 py-2.5 text-center">
+                                    <span className="text-xs text-gray-500">Edit | View</span>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                      
+                      <TablePagination 
+                        page={page}
+                        totalPages={totalPages}
+                        totalCount={totalCount}
+                        pageSize={pageSize}
+                        setPage={setPage}
+                        setPageSize={setPageSize}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* IMPORT FROM PROJECT TAB - Show papers from selected source project */}
+                  {!selectedSourceProject ? (
+                    <div className="p-16 text-center">
+                      <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                      <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Select a source project to view papers</p>
+                      <p className="text-xs font-medium text-gray-500 mt-2">Choose a project from the dropdown above to see available papers for import</p>
+                    </div>
+                  ) : tableLoading && allProjectPapers.length === 0 ? (
+                    <div className="p-16 text-center">
+                      <div className="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loading Papers...</p>
+                    </div>
+                  ) : allProjectPapers.length === 0 ? (
+                    <div className="p-16 text-center">
+                      <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                      <p className="text-xs font-bold uppercase tracking-wider text-gray-400">No Papers Found in Selected Project</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                          <tr>
+                            <th className="px-5 py-3.5 w-12 text-center border-b border-gray-100">
+                              <input 
+                                type="checkbox" 
+                                checked={papers.length > 0 && selectedPaperIds.length === papers.length} 
+                                onChange={handleSelectAll} 
+                                className="rounded border-gray-300 text-teal-700 focus:ring-teal-500 cursor-pointer w-4 h-4"
+                              />
+                            </th>
+                            <SortHeader label="Paper Details" field="paperName" hasFilter={true} />
+                            <SortHeader label="Paper Code" field="paperCode" hasFilter={true} />
+                            <SortHeader label="Subjects" field="subjectNames" hasFilter={true} />
+                            <SortHeader label="Max Marks" field="maxMarks" />
+                            <th className="px-5 py-3.5 text-center border-b border-gray-100">Sections</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-xs font-bold text-gray-700">
+                          {papers.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="px-5 py-16 text-center">
+                                <FileText size={32} className="mx-auto text-gray-200 mb-2" />
+                                <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                                  {tableSearch || Object.keys(filters).some(k => filters[k]) ? 'No papers match your search/filter criteria' : 'No papers found in selected project'}
+                                </p>
+                              </td>
+                            </tr>
+                          ) : (
+                            papers.map(paper => {
+                              const isSelected = selectedPaperIds.includes(paper.paperId);
+                              return (
+                                <tr key={paper.paperId} className={`hover:bg-gray-50/50 transition-colors ${isSelected ? 'bg-teal-50/30' : ''}`}>
+                                  <td className="px-5 py-2.5 text-center">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={isSelected}
+                                      onChange={() => handleTogglePaper(paper.paperId)}
+                                      className="rounded border-gray-300 text-teal-700 focus:ring-teal-500 cursor-pointer w-4 h-4"
+                                    />
+                                  </td>
+                                  <td className="px-5 py-2.5">
+                                    <div className="font-bold text-gray-900">
+                                      {paper.paperName}
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-2.5">
+                                    <span className="font-mono bg-gray-100 text-gray-600 font-bold px-2 py-1 rounded-md text-[11px] uppercase tracking-wider">
+                                      {paper.paperCode}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-2.5">
+                                    <span className="text-gray-600 font-bold text-xs">
+                                      {paper.subjectNames?.join(', ') || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-2.5 text-center font-bold text-gray-700">
+                                    {paper.maxMarks}
+                                  </td>
+                                  <td className="px-5 py-2.5 text-center font-bold text-gray-700">
+                                    {paper.sections?.length || 0}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                      
+                      <TablePagination 
+                        page={page}
+                        totalPages={totalPages}
+                        totalCount={totalCount}
+                        pageSize={pageSize}
+                        setPage={setPage}
+                        setPageSize={setPageSize}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 }
-
