@@ -1,23 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
-  Upload, FileText, CheckCircle2, AlertCircle, ArrowLeft, RefreshCw, X, Folder, HelpCircle, FileCheck, Search
+  Upload, FileText, CheckCircle2, AlertCircle, ArrowLeft, RefreshCw, X, Folder, HelpCircle, FileCheck, Search, Info, Loader, ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBreadcrumb } from '../context/BreadcrumbContext';
 import { decryptId, encryptId } from '../utils/encryption';
-import ProjectConfigHeader from '../components/ProjectConfigHeader';
 import paperService from '../services/paperService';
+import projectService from '../services/projectService';
 import message from '../services/messageService';
 
 export default function ImportQuestionPapers() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const encryptedProjectId = searchParams.get('projectId');
-  const savedProjectId = !encryptedProjectId ? sessionStorage.getItem('selectedProjectId') : null;
-  const projectId = encryptedProjectId ? decryptId(encryptedProjectId) : (savedProjectId || null);
-  const effectiveEncryptedProjectId = encryptedProjectId || (savedProjectId ? encryptId(savedProjectId) : '');
+  const initialProjectId = encryptedProjectId ? (decryptId(encryptedProjectId) || '') : '';
+
+  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
+  const [projects, setProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+
   const universityId = searchParams.get('universityId');
-  const { userType } = useAuth();
+  const { userType, user } = useAuth();
+  const userUniversityId = user?.universityId;
+  const activeUniversityId = userType === "coordinator" ? userUniversityId : universityId;
   const { setBreadcrumb } = useBreadcrumb();
   const navigate = useNavigate();
 
@@ -25,6 +30,62 @@ export default function ImportQuestionPapers() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [searchFilter, setSearchFilter] = useState('');
+
+  const effectiveEncryptedProjectId = selectedProjectId ? encryptId(selectedProjectId) : '';
+
+  // Load projects for active university without auto-selecting
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        setLoadingProjects(true);
+        const projs = await projectService.getAllProjects(activeUniversityId, { pageSize: 0 });
+        const projectsData = projs?.items || projs || [];
+        setProjects(projectsData);
+      } catch (err) {
+        console.error('Failed to load projects:', err);
+        setProjects([]);
+      } finally {
+        setLoadingProjects(false);
+      }
+    };
+
+    loadProjects();
+  }, [activeUniversityId]);
+
+  useEffect(() => {
+    if (encryptedProjectId) {
+      const decrypted = decryptId(encryptedProjectId);
+      if (decrypted && decrypted !== selectedProjectId) {
+        setSelectedProjectId(decrypted);
+      }
+    } else {
+      setSelectedProjectId('');
+    }
+  }, [encryptedProjectId]);
+
+  const handleProjectChange = (newProjId) => {
+    if (!newProjId) {
+      setSelectedProjectId('');
+      sessionStorage.removeItem('selectedProjectId');
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('projectId');
+        return next;
+      });
+      setUploadResult(null);
+      return;
+    }
+
+    setSelectedProjectId(newProjId);
+    sessionStorage.setItem('selectedProjectId', newProjId);
+    const newEncrypted = encryptId(newProjId);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('projectId', newEncrypted);
+      return next;
+    });
+    setUploadResult(null);
+  };
 
   useEffect(() => {
     const basePath = userType === 'admin' ? '/admin/papers' : '/papers';
@@ -65,7 +126,7 @@ export default function ImportQuestionPapers() {
   };
 
   const handleBulkUpload = async () => {
-    if (!projectId) {
+    if (!selectedProjectId) {
       message.error('Please select a project before uploading');
       return;
     }
@@ -75,7 +136,7 @@ export default function ImportQuestionPapers() {
     }
     setIsUploading(true);
     try {
-      const res = await paperService.bulkUploadQuestionPapers(projectId, selectedFiles);
+      const res = await paperService.bulkUploadQuestionPapers(selectedProjectId, selectedFiles);
       setUploadResult(res);
       if (res.matchedCount > 0) {
         message.success(`Successfully matched and allocated ${res.matchedCount} Question Paper(s)!`);
@@ -104,66 +165,77 @@ export default function ImportQuestionPapers() {
   const backPath = userType === 'admin' ? '/admin/papers' : '/papers';
 
   return (
-    <div className="min-h-screen bg-gray-50/50 pb-16">
-      {/* Top Header & Breadcrumbs */}
-      <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-20">
-        <div className="lg:px-10 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 md:px-6 px-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(`${backPath}?projectId=${effectiveEncryptedProjectId || ''}&universityId=${universityId || ''}`)}
-              className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
-              title="Back to Papers Management"
-            >
-              <ArrowLeft size={18} />
-            </button>
+    <div className="min-h-screen bg-transparent w-full max-w-none px-4 py-3 lg:px-8 lg:py-4">
+      <div className="w-full space-y-4">
+        {/* Standard Page Header */}
+        <div className="bg-white px-4 py-3 rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            {/* Title */}
             <div>
-              <h1 className="text-xl font-extrabold text-gray-900 flex items-center gap-2">
-                <Upload className="text-emerald-600" size={22} />
+              <h1 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                <Upload className="text-teal-700" size={22} />
                 Bulk Import Question Papers (Catch-wise)
               </h1>
               <p className="text-xs text-gray-500 font-medium">
                 Upload multiple question paper PDFs at once. Filenames will be automatically matched to paper Catch Numbers.
               </p>
             </div>
-          </div>
-          <Link
-            to={`${backPath}?projectId=${effectiveEncryptedProjectId || ''}&universityId=${universityId || ''}`}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl transition-all shadow-sm"
-          >
-            <FileText size={14} className="text-teal-600" />
-            View Papers Table
-          </Link>
-        </div>
-      </div>
 
-      <div className="lg:px-10 mt-6 space-y-6 md:px-6 px-4">
-        <ProjectConfigHeader />
-
-        {/* Guideline Card */}
-        <div className="bg-gradient-to-r from-emerald-900 to-teal-800 text-white rounded-2xl shadow-md relative overflow-hidden p-4 md:p-6">
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-2 max-w-3xl">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                <HelpCircle size={12} /> Filename Matching Convention
-              </span>
-              <h2 className="text-lg font-bold text-white">How Catch-wise Bulk Upload Works</h2>
-              <p className="text-xs text-emerald-100/90 leading-relaxed">
-                Name your PDF files using the corresponding paper's <strong>Catch Number</strong> or <strong>Paper Code</strong> 
-                (for example: <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200 font-mono">1001.pdf</code>, 
-                <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200 font-mono">CATCH_1001.pdf</code>, or 
-                <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200 font-mono">MATH101.pdf</code>). 
-                Select all files together or drop them below to automatically allocate them to papers!
-              </p>
+            {/* Controls: Project Dropdown */}
+            <div className="relative min-w-[200px] sm:min-w-[240px]">
+              {loadingProjects ? (
+                <div className="flex items-center gap-2 text-gray-500 text-xs py-2 px-3 bg-gray-50 rounded-xl border border-gray-200">
+                  <Loader size={14} className="animate-spin text-teal-700" />
+                  <span className="font-semibold">Loading projects...</span>
+                </div>
+              ) : (
+                <div className="relative">
+                  <select
+                    value={selectedProjectId || ''}
+                    onChange={(e) => handleProjectChange(e.target.value)}
+                    className="w-full bg-white border border-gray-200 hover:border-gray-300 focus:border-teal-500 rounded-xl text-xs font-bold text-gray-800 py-2.5 pl-3 pr-8 outline-none appearance-none cursor-pointer shadow-2xs transition-all"
+                  >
+                    <option value="">-- Select Project --</option>
+                    {projects.map((proj) => (
+                      <option key={proj.projectId} value={proj.projectId}>
+                        {proj.projectName} (PRJ-{proj.projectId})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Main Upload Dropzone Area */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm space-y-6 p-4 md:p-6">
+        {/* White Background Container with Import Feature & Instructions */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-6">
+          {/* Sleek Guideline & Match Instructions Banner */}
+          <div className="p-4 sm:p-5 bg-teal-50/60 border border-teal-100 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                <Info size={18} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-xs font-bold text-gray-900">How Catch-wise Bulk Upload Works</h4>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-teal-100/80 text-teal-800 px-2.5 py-0.5 rounded-full border border-teal-200/50">
+                    Automatic Matching
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  Name your PDF files using the corresponding paper's <strong className="text-gray-800">Catch Number</strong> or <strong className="text-gray-800">Paper Code</strong> (for example: <code className="bg-white border border-teal-200 text-teal-800 px-1.5 py-0.5 rounded text-[11px] font-mono">1001.pdf</code>, <code className="bg-white border border-teal-200 text-teal-800 px-1.5 py-0.5 rounded text-[11px] font-mono">CATCH_1001.pdf</code>, or <code className="bg-white border border-teal-200 text-teal-800 px-1.5 py-0.5 rounded text-[11px] font-mono">MATH101.pdf</code>). Select all files together or drop them below to automatically allocate them to papers.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Upload Dropzone Area */}
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
-            className="border-2 border-dashed border-emerald-200 hover:border-emerald-500 bg-emerald-50/20 hover:bg-emerald-50/40 rounded-2xl text-center transition-all cursor-pointer group p-4 md:p-8"
+            className="border-2 border-dashed border-teal-200 hover:border-teal-500 bg-teal-50/20 hover:bg-teal-50/50 rounded-xl text-center transition-all cursor-pointer group p-8 md:p-12"
           >
             <input
               type="file"
@@ -174,54 +246,57 @@ export default function ImportQuestionPapers() {
               className="hidden"
             />
             <label htmlFor="bulkQpInput" className="cursor-pointer space-y-3 block">
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                <Upload size={28} />
+              <div className="w-14 h-14 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center mx-auto group-hover:scale-105 group-hover:bg-teal-700 group-hover:text-white transition-all shadow-xs">
+                <Upload size={26} />
               </div>
-              <div>
-                <p className="text-sm font-extrabold text-gray-900">
+              <div className="space-y-1">
+                <p className="text-sm font-extrabold text-gray-800">
                   Click to select Question Paper PDFs or drag & drop files here
                 </p>
-                <p className="text-xs text-gray-400 font-medium mt-1">
-                  Supports multiple PDF files named by Catch No (e.g. 1001.pdf, 1002.pdf)
+                <p className="text-xs text-gray-500 font-medium">
+                  Supports multiple PDF files named by Catch No (e.g. <span className="font-mono text-gray-700 font-bold">1001.pdf</span>, <span className="font-mono text-gray-700 font-bold">1002.pdf</span>)
                 </p>
               </div>
-              <span className="inline-block px-4 py-2 text-xs font-bold text-emerald-700 bg-white border border-emerald-200 rounded-xl shadow-xs group-hover:bg-emerald-50 transition-colors">
-                Browse Files
-              </span>
+              <div className="pt-2">
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-teal-700 bg-white border border-teal-200 hover:bg-teal-50 rounded-lg shadow-xs transition-colors">
+                  <Folder size={13} />
+                  Browse Files
+                </span>
+              </div>
             </label>
           </div>
 
           {/* Selected Files Queue */}
           {selectedFiles.length > 0 && (
-            <div className="space-y-4 animate-in fade-in duration-300">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-4 sm:p-5 space-y-4 animate-in fade-in duration-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <FileCheck size={16} className="text-emerald-600" />
-                  <span className="text-sm font-extrabold text-gray-900 uppercase tracking-wider">
-                    Selected Files ({selectedFiles.length})
+                  <FileCheck size={16} className="text-teal-700" />
+                  <span className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">
+                    Selected Files Queue ({selectedFiles.length})
                   </span>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5">
                   <button
                     onClick={clearAllFiles}
-                    className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-3 py-2 rounded-xl transition-colors"
+                    className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
                   >
                     Clear Queue
                   </button>
                   <button
                     onClick={handleBulkUpload}
                     disabled={isUploading}
-                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider py-2.5 px-6 rounded-xl transition-all shadow-md flex items-center gap-2"
+                    className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider py-2 px-5 rounded-lg transition-all shadow-sm flex items-center gap-2 cursor-pointer"
                   >
                     {isUploading ? (
                       <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Uploading...
+                        <Loader size={14} className="animate-spin" />
+                        <span>Uploading...</span>
                       </>
                     ) : (
                       <>
-                        <Upload size={15} />
-                        Upload & Auto-Allocate
+                        <Upload size={14} />
+                        <span>Upload & Auto-Allocate</span>
                       </>
                     )}
                   </button>
@@ -230,14 +305,14 @@ export default function ImportQuestionPapers() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
                 {selectedFiles.map((f, i) => (
-                  <div key={i} className="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200/80 rounded-xl text-xs">
+                  <div key={i} className="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-teal-50/40 border border-gray-200 rounded-lg text-xs transition-colors">
                     <div className="flex items-center gap-2 truncate pr-2">
-                      <FileText size={14} className="text-emerald-600 shrink-0" />
+                      <FileText size={14} className="text-teal-700 shrink-0" />
                       <span className="font-bold text-gray-800 truncate" title={f.name}>{f.name}</span>
                     </div>
                     <button
                       onClick={() => removeFile(i)}
-                      className="text-gray-400 hover:text-rose-600 transition-colors p-1"
+                      className="text-gray-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
                       title="Remove file"
                     >
                       <X size={13} />
@@ -245,128 +320,148 @@ export default function ImportQuestionPapers() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
 
+          {/* Upload Results & Summary Report */}
+          {uploadResult && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden space-y-0 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div className="p-4 sm:p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50">
+                <div>
+                  <h3 className="text-sm font-extrabold text-gray-900 flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-teal-700" />
+                    Import Summary & Allocation Report
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{uploadResult.message}</p>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <div className="bg-teal-50 text-teal-800 border border-teal-200 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                    <CheckCircle2 size={13} className="text-teal-700" />
+                    <span>{uploadResult.matchedCount} Allocated</span>
+                  </div>
+                  {uploadResult.unmatchedCount > 0 && (
+                    <div className="bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                      <AlertCircle size={13} className="text-amber-700" />
+                      <span>{uploadResult.unmatchedCount} Unmatched</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => { setSelectedFiles([]); setUploadResult(null); }}
+                    className="px-3 py-1 text-xs font-bold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors shadow-2xs cursor-pointer"
+                  >
+                    Upload More
+                  </button>
+                </div>
+              </div>
+
+              {/* Results Search Filter */}
+              <div className="px-4 sm:px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-4 bg-white">
+                <div className="relative w-full max-w-sm">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Filter results by filename, catch no, paper code..."
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white placeholder-gray-400 transition-all"
+                  />
+                  {searchFilter && (
+                    <button onClick={() => setSearchFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500 font-medium shrink-0">
+                  Showing {filteredResults.length} file(s)
+                </span>
+              </div>
+
+              {/* Results Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                    <tr>
+                      <th className="px-5 py-3.5 border-b border-gray-100">File Name</th>
+                      <th className="px-5 py-3.5 text-center border-b border-gray-100">Status</th>
+                      <th className="px-5 py-3.5 border-b border-gray-100">Matched Paper Code & Name</th>
+                      <th className="px-5 py-3.5 text-center border-b border-gray-100">Catch No</th>
+                      <th className="px-5 py-3.5 text-right border-b border-gray-100">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-xs font-bold text-gray-700">
+                    {filteredResults.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-12 text-center text-gray-400">
+                          No results match your filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredResults.map((r, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-5 py-3 font-extrabold text-gray-900">
+                            <div className="flex items-center gap-2">
+                              <FileText size={14} className={r.status === 'Success' ? 'text-teal-700' : 'text-amber-500'} />
+                              <span>{r.fileName}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-center">
+                            {r.status === 'Success' ? (
+                              <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200">
+                                Allocated
+                              </span>
+                            ) : (
+                              <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                                Unmatched
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                            {r.paperCode ? (
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono bg-gray-100 text-gray-600 font-bold px-2 py-0.5 rounded-md text-[11px] uppercase tracking-wider">
+                                  {r.paperCode}
+                                </span>
+                                <span className="font-bold text-gray-900">{r.paperName}</span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic">No matching paper</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-center font-mono font-bold text-gray-700">
+                            {r.catchNo || '—'}
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            {r.fileUrl ? (
+                              <a
+                                href={`${import.meta.env.VITE_API_URL.replace('/api', '')}${r.fileUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 transition-colors"
+                              >
+                                <FileText size={12} /> View PDF
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 italic">No PDF Attached</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="p-4 sm:p-5 flex items-center justify-between border-t border-gray-100 bg-gray-50/30">
+                <button
+                  onClick={() => navigate(`${backPath}?projectId=${effectiveEncryptedProjectId || ''}&universityId=${universityId || ''}`)}
+                  className="bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs uppercase tracking-wider py-2 px-5 rounded-lg transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                >
+                  <ArrowLeft size={14} /> Return to Papers Management
+                </button>
+              </div>
             </div>
           )}
         </div>
-
-        {/* Upload Results & Summary Report */}
-        {uploadResult && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 p-4 md:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-              <div>
-                <h3 className="text-base font-extrabold text-gray-900 flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-emerald-600" />
-                  Import Summary & Allocation Report
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">{uploadResult.message}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5">
-                  <CheckCircle2 size={13} />
-                  <span>{uploadResult.matchedCount} Allocated</span>
-                </div>
-                {uploadResult.unmatchedCount > 0 && (
-                  <div className="bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5">
-                    <AlertCircle size={13} />
-                    <span>{uploadResult.unmatchedCount} Unmatched</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Results Search Filter */}
-            <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200 max-w-md">
-              <Search size={14} className="text-gray-400 shrink-0" />
-              <input
-                type="text"
-                placeholder="Filter results by filename, catch no, paper code..."
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                className="w-full bg-transparent text-xs text-gray-800 font-semibold focus:outline-none placeholder-gray-400"
-              />
-              {searchFilter && (
-                <button onClick={() => setSearchFilter('')} className="text-gray-400 hover:text-gray-600">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            {/* Results Table */}
-            <div className="overflow-x-auto pb-2">
-              <table className="w-full text-left text-xs whitespace-nowrap min-w-[700px]">
-                <thead>
-                  <tr className="bg-gray-50 text-[10px] uppercase font-bold text-gray-400 tracking-wider border-b border-gray-100">
-                    <th className="px-5 py-3">File Name</th>
-                    <th className="px-5 py-3 text-center">Status</th>
-                    <th className="px-5 py-3">Matched Paper Code & Name</th>
-                    <th className="px-5 py-3 text-center">Catch No</th>
-                    <th className="px-5 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredResults.map((r, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-5 py-3 font-extrabold text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <FileText size={14} className={r.status === 'Success' ? 'text-emerald-600' : 'text-amber-500'} />
-                          <span>{r.fileName}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                        {r.status === 'Success' ? (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Allocated
-                          </span>
-                        ) : (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
-                            Unmatched
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3">
-                        {r.paperCode ? (
-                          <div>
-                            <span className="font-extrabold text-gray-900 block">{r.paperCode}</span>
-                            <span className="text-[10px] text-gray-500 block">{r.paperName}</span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400 italic">No matching paper</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-center font-mono font-bold text-gray-700">
-                        {r.catchNo || '-'}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        {r.fileUrl ? (
-                          <a
-                            href={`${import.meta.env.VITE_API_URL.replace('/api', '')}${r.fileUrl}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-                          >
-                            <FileText size={12} /> View PDF
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-gray-400 italic">No PDF Attached</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="pt-4 flex items-center justify-between border-t border-gray-100">
-              <button
-                onClick={() => navigate(`${backPath}?projectId=${encryptedProjectId || ''}&universityId=${universityId || ''}`)}
-                className="bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 md:px-6 px-4"
-              >
-                <ArrowLeft size={14} /> Return to Papers Management
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

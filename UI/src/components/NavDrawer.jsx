@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   X, LayoutDashboard, School, Building2, GraduationCap, BookOpen,
   Calendar, FileText, Layers, Zap, Users, Shield, Activity, PenTool,
-  BarChart3, BookMarked, Settings2, Briefcase, Upload
+  BarChart3, BookMarked, Settings2, Briefcase, Upload, Folder
 } from 'lucide-react';
 import { encryptId } from '../utils/encryption';
 
@@ -37,6 +37,11 @@ function useNavGroups(userType, hasPermission) {
       ? encryptedProjId ? `/admin/import-question-papers?projectId=${encryptedProjId}${univParam}` : '/admin/import-question-papers'
       : encryptedProjId ? `/import-question-papers?projectId=${encryptedProjId}${univParam}` : '/import-question-papers';
 
+  const importPapersPath =
+    userType === 'admin'
+      ? encryptedProjId ? `/admin/import-papers-from-project?projectId=${encryptedProjId}${univParam}` : '/admin/import-papers-from-project'
+      : encryptedProjId ? `/import-papers-from-project?projectId=${encryptedProjId}${univParam}` : '/import-papers-from-project';
+
   if (userType === 'admin') {
     const groups = [
       {
@@ -58,9 +63,10 @@ function useNavGroups(userType, hasPermission) {
       {
         label: 'Examination',
         items: [
+          { label: 'Import Papers from Project', path: importPapersPath, icon: Folder },
+          { label: 'Bulk Import Q.P.',    path: importQpPath,             icon: Upload },
           { label: 'Section Masters',     path: '/admin/section-masters', icon: Layers },
           { label: 'Question Types',      path: '/admin/question-types',  icon: Layers },
-          { label: 'Bulk Import Q.P.',    path: importQpPath,             icon: Upload },
         ],
       },
     ];
@@ -96,10 +102,11 @@ function useNavGroups(userType, hasPermission) {
       {
         label: 'Examination',
         items: [
-          { label: 'Projects',            path: '/projects', icon: BookMarked },
-          { label: 'Section Masters',     path: '/section-masters', icon: Layers },
-          { label: 'Question Types',      path: '/question-types', icon: Layers },
-          { label: 'Bulk Import Q.P.',    path: importQpPath, icon: Upload },
+          { label: 'Projects',            path: '/projects',              icon: BookMarked },
+          { label: 'Import Papers from Project', path: importPapersPath, icon: Folder },
+          { label: 'Bulk Import Q.P.',    path: importQpPath,             icon: Upload },
+          { label: 'Section Masters',     path: '/section-masters',       icon: Layers },
+          { label: 'Question Types',      path: '/question-types',        icon: Layers },
         ],
       },
     ];
