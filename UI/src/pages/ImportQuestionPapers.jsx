@@ -13,7 +13,9 @@ import message from '../services/messageService';
 export default function ImportQuestionPapers() {
   const [searchParams] = useSearchParams();
   const encryptedProjectId = searchParams.get('projectId');
-  const projectId = encryptedProjectId ? decryptId(encryptedProjectId) : null;
+  const savedProjectId = !encryptedProjectId ? sessionStorage.getItem('selectedProjectId') : null;
+  const projectId = encryptedProjectId ? decryptId(encryptedProjectId) : (savedProjectId || null);
+  const effectiveEncryptedProjectId = encryptedProjectId || (savedProjectId ? encryptId(savedProjectId) : '');
   const universityId = searchParams.get('universityId');
   const { userType } = useAuth();
   const { setBreadcrumb } = useBreadcrumb();
@@ -27,10 +29,10 @@ export default function ImportQuestionPapers() {
   useEffect(() => {
     const basePath = userType === 'admin' ? '/admin/papers' : '/papers';
     setBreadcrumb([
-      { label: 'Paper Management', path: `${basePath}?projectId=${encryptedProjectId || ''}&universityId=${universityId || ''}`, icon: 'FileText' },
+      { label: 'Paper Management', path: `${basePath}?projectId=${effectiveEncryptedProjectId || ''}&universityId=${universityId || ''}`, icon: 'FileText' },
       { label: 'Bulk Import Question Papers', path: `/import-question-papers`, icon: 'Upload' }
     ]);
-  }, [userType, encryptedProjectId, universityId, setBreadcrumb]);
+  }, [userType, effectiveEncryptedProjectId, universityId, setBreadcrumb]);
 
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'));
@@ -63,6 +65,10 @@ export default function ImportQuestionPapers() {
   };
 
   const handleBulkUpload = async () => {
+    if (!projectId) {
+      message.error('Please select a project before uploading');
+      return;
+    }
     if (selectedFiles.length === 0) {
       message.error('Please select at least one Question Paper PDF file');
       return;
@@ -104,7 +110,7 @@ export default function ImportQuestionPapers() {
         <div className="lg:px-10 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 md:px-6 px-4">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate(`${backPath}?projectId=${encryptedProjectId || ''}&universityId=${universityId || ''}`)}
+              onClick={() => navigate(`${backPath}?projectId=${effectiveEncryptedProjectId || ''}&universityId=${universityId || ''}`)}
               className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
               title="Back to Papers Management"
             >
@@ -121,7 +127,7 @@ export default function ImportQuestionPapers() {
             </div>
           </div>
           <Link
-            to={`${backPath}?projectId=${encryptedProjectId || ''}&universityId=${universityId || ''}`}
+            to={`${backPath}?projectId=${effectiveEncryptedProjectId || ''}&universityId=${universityId || ''}`}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl transition-all shadow-sm"
           >
             <FileText size={14} className="text-teal-600" />
