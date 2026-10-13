@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Edit2, Trash2, X, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Edit2, Trash2, X, Search, ArrowUp, ArrowDown, ArrowUpDown, Plus } from 'lucide-react';
 import { useTable } from '../services/tableService';
 import TablePagination from '../components/TablePagination';
 import ColumnFilter from '../components/ColumnFilter';
@@ -228,8 +228,9 @@ export default function RoleManagement() {
                 <button
                   type="button"
                   onClick={handleOpenNewModal}
-                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-md font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-sm hover:shadow bg-teal-700 hover:bg-teal-800 text-white shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
                 >
+                  <Plus size={13} />
                   <span>New Role</span>
                 </button>
               )}

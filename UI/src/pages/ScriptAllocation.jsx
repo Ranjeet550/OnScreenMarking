@@ -610,17 +610,11 @@ export default function ScriptAllocation({ isTab = false }) {
                         )}
                       </div>
 
-                      {papers.filter(p => p.pendingScripts > 0).length > 0 && (
-                        <div className="text-[11px] font-bold text-gray-500 px-1 border-r border-gray-200 pr-4">
-                          {selectedPaperIds.length} of {papers.filter(p => p.pendingScripts > 0).length} selected
-                        </div>
-                      )}
-
                       {/* Action buttons */}
                       {selectedPaperIds.length > 0 && (
                         <button
                           onClick={openMultiPaperPane}
-                          className="bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-[11px] uppercase tracking-wider px-3.5 py-2 rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+                          className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
                         >
                           <Zap size={13} />
                           Allocate Selected ({selectedPaperIds.length})
@@ -631,10 +625,10 @@ export default function ScriptAllocation({ isTab = false }) {
                           <button
                             onClick={handleAutoAllocateProject}
                             disabled={autoProjectLoading || !papers.some(p => p.pendingScripts > 0)}
-                            className={`font-extrabold text-[11px] uppercase tracking-wider px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm shrink-0 cursor-pointer ${
                               !papers.some(p => p.pendingScripts > 0)
                                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200 shadow-none'
-                                : 'bg-teal-700 hover:bg-teal-800 text-white shadow-sm disabled:opacity-50'
+                                : 'bg-teal-700 hover:bg-teal-800 text-white hover:shadow disabled:opacity-50'
                             }`}
                           >
                             {autoProjectLoading ? <Loader size={13} className="animate-spin" /> : <Sparkles size={13} />}

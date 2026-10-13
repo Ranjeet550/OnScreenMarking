@@ -29,8 +29,8 @@ function useNavGroups(userType, hasPermission) {
 
   const allocationPath =
     userType === 'admin'
-      ? encryptedProjId ? `/admin/allocate-scripts?projectId=${encryptedProjId}${univParam}` : '/admin/allocate-scripts'
-      : encryptedProjId ? `/allocate-scripts?projectId=${encryptedProjId}${univParam}` : '/allocate-scripts';
+      ? encryptedProjId ? `/admin/project-dashboard?projectId=${encryptedProjId}&tab=allocations${univParam}` : `/admin/project-dashboard?tab=allocations${univParam}`
+      : encryptedProjId ? `/project-dashboard?projectId=${encryptedProjId}&tab=allocations${univParam}` : `/project-dashboard?tab=allocations${univParam}`;
 
   const importQpPath =
     userType === 'admin'
@@ -150,6 +150,9 @@ function useNavGroups(userType, hasPermission) {
 
 export default function NavDrawer({ isOpen, onClose }) {
   const { userType, hasPermission } = useAuth();
+  const location = useLocation();
+  const currentParams = new URLSearchParams(location.search);
+  const currentTab = currentParams.get('tab') || '';
   const groups = useNavGroups(userType, hasPermission);
 
   // Close on Escape key
@@ -202,26 +205,33 @@ export default function NavDrawer({ isOpen, onClose }) {
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
+                  const itemUrl = new URL(item.path, window.location.origin);
+                  const itemTab = itemUrl.searchParams.get('tab') || '';
+
+                  const isCustomActive = itemUrl.pathname === location.pathname && (
+                    itemTab ? currentTab === itemTab : (!currentTab || currentTab === 'project-dashboard')
+                  );
+
                   return (
                     <NavLink
                       key={item.path}
                       to={item.path}
                       end={item.exact}
                       onClick={onClose}
-                      className={({ isActive }) =>
+                      className={() =>
                         `flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all group
-                        ${isActive
+                        ${isCustomActive
                           ? 'bg-teal-50 text-teal-700 border-l-[3px] border-teal-600 pl-[9px]'
                           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-l-[3px] border-transparent pl-[9px]'
                         }`
                       }
                     >
-                      {({ isActive }) => (
+                      {() => (
                         <>
                           <Icon
                             size={15}
                             strokeWidth={2}
-                            className={isActive ? 'text-teal-700' : 'text-gray-400 group-hover:text-gray-600'}
+                            className={isCustomActive ? 'text-teal-700' : 'text-gray-400 group-hover:text-gray-600'}
                           />
                           {item.label}
                         </>

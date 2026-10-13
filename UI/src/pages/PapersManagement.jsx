@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { 
   FileText, Plus, Edit2, UserPlus, X, Search, CheckCircle2, Trash2, 
-  ChevronRight, ChevronDown, Filter, Users, BookOpen, Layers, Folder, AlertCircle, Copy, Upload, Info, Settings, Loader, FileCheck
+  ChevronRight, ChevronDown, Filter, Users, BookOpen, Layers, Folder, AlertCircle, Copy, Upload, Info, Settings, Loader, FileCheck, Eye
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useBreadcrumb } from "../context/BreadcrumbContext";
@@ -1134,35 +1134,35 @@ export default function PapersManagement({ isTab = false }) {
               <div className="flex items-stretch h-full shrink-0">
                 <button
                   onClick={() => setActiveInnerTab('papers-sections')}
-                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap cursor-pointer ${
                     activeInnerTab === 'papers-sections'
                       ? 'border-teal-600 text-teal-700 bg-teal-50/50'
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
                   }`}
                 >
-                  <FileText size={13} />
+                  <FileText size={13} className={activeInnerTab === 'papers-sections' ? 'text-teal-700' : 'text-gray-400'} />
                   Papers & Sections
                 </button>
                 <button
                   onClick={() => setActiveInnerTab('import-papers')}
-                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap cursor-pointer ${
                     activeInnerTab === 'import-papers'
                       ? 'border-teal-600 text-teal-700 bg-teal-50/50'
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
                   }`}
                 >
-                  <Folder size={13} />
+                  <Folder size={13} className={activeInnerTab === 'import-papers' ? 'text-teal-700' : 'text-gray-400'} />
                   Import from Project
                 </button>
                 <button
                   onClick={() => setActiveInnerTab('bulk-import')}
-                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap cursor-pointer ${
                     activeInnerTab === 'bulk-import'
                       ? 'border-teal-600 text-teal-700 bg-teal-50/50'
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
                   }`}
                 >
-                  <Upload size={13} />
+                  <Upload size={13} className={activeInnerTab === 'bulk-import' ? 'text-teal-700' : 'text-gray-400'} />
                   Bulk QP Import
                 </button>
               </div>
@@ -1212,7 +1212,7 @@ export default function PapersManagement({ isTab = false }) {
                       setEditingId(null);
                       setShowForm(true);
                     }}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-extrabold bg-teal-700 hover:bg-teal-800 text-white shadow-sm transition-all whitespace-nowrap"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={13} /> Add Paper
                   </button>
@@ -1412,29 +1412,29 @@ export default function PapersManagement({ isTab = false }) {
                               href={`${import.meta.env.VITE_API_URL.replace('/api', '')}/${paper.questionPaperPdfUrl.replace(/^\//, '')}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-sm"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/90 hover:border-blue-300 transition-all shadow-2xs group cursor-pointer"
                               title="View Question Paper PDF"
                             >
-                              <FileText size={13} className="text-emerald-600" />
-                              View PDF
+                              <Eye size={12} className="text-blue-600 group-hover:scale-110 transition-transform" />
+                              <span>View PDF</span>
                             </a>
                           ) : (
                             <button
                               type="button"
                               onClick={() => triggerTableUpload(paper)}
                               disabled={uploadingPaperId === paper.paperId}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 transition-colors shadow-sm"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider text-blue-700 hover:text-blue-800 bg-blue-50/70 hover:bg-blue-100 border border-dashed border-blue-300 hover:border-blue-400 transition-all shadow-2xs group cursor-pointer disabled:opacity-50"
                               title="Upload Question Paper PDF"
                             >
                               {uploadingPaperId === paper.paperId ? (
-                                <span className="flex items-center gap-1 text-teal-600 animate-pulse">
-                                  <span className="w-3 h-3 border-2 border-teal-600 border-t-transparent rounded-full animate-spin inline-block"></span>
-                                  Uploading...
+                                <span className="flex items-center gap-1 text-blue-600 animate-pulse">
+                                  <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin inline-block"></span>
+                                  <span>Uploading...</span>
                                 </span>
                               ) : (
                                 <>
-                                  <Upload size={12} />
-                                  Upload PDF
+                                  <Upload size={12} className="text-blue-600 group-hover:-translate-y-0.5 transition-transform" />
+                                  <span>Upload PDF</span>
                                 </>
                               )}
                             </button>
@@ -1502,51 +1502,69 @@ export default function PapersManagement({ isTab = false }) {
                             const isFullyReady = missingReasons.length === 0;
 
                             return (
-                              <div className="flex flex-col gap-1.5 min-w-[210px] items-start">
+                              <div className="flex flex-col gap-1 items-start min-w-[170px]" title={tooltipTitle}>
                                 {isFullyReady ? (
-                                  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm">
-                                    <CheckCircle2 size={13} className="text-emerald-600" />
-                                    <span className="text-[9px] font-black uppercase tracking-wider">Ready for Script Allocation</span>
+                                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                    <CheckCircle2 size={12} className="text-emerald-600" />
+                                    <span className="text-[10px] font-black uppercase tracking-wider">Ready for Allocation</span>
                                   </div>
                                 ) : (
-                                  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">
-                                    <AlertCircle size={13} className="text-amber-600" />
-                                    <span className="text-[9px] font-black uppercase tracking-wider">Action Required</span>
-                                  </div>
-                                )}
-
-                                <div className="flex flex-col w-full text-[9px] bg-gray-50/70 p-2 rounded-md border border-gray-100 shadow-sm gap-1 uppercase tracking-wider">
-                                  {statusDetails.map((item, idx) => (
-                                    <div key={idx} className="flex items-center gap-1.5">
-                                      {item.ok ? (
-                                        <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                                      ) : (
-                                        <X size={11} className="text-rose-500 shrink-0" />
-                                      )}
-                                      <span className={item.ok ? 'text-gray-500 font-bold' : 'text-rose-600 font-black'}>
-                                        {item.label}: {item.ok ? (item.label === 'Question Paper' ? 'Uploaded' : (item.label === 'Evaluators' ? 'Assigned' : 'Complete')) : (item.label === 'Question Paper' ? 'Not Uploaded' : (item.label === 'Evaluators' ? 'Not Assigned' : 'Not Added'))}
-                                      </span>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                                      <AlertCircle size={11} className="text-amber-600" />
+                                      <span className="text-[9px] font-black uppercase tracking-wider">Action Required</span>
                                     </div>
-                                  ))}
-                                </div>
-
-                                {!isFullyReady && (
-                                  <div className="mt-0.5">
                                     {!hasSections || !marksMatch ? (
-                                      <Link to={userType === 'admin' ? `/admin/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers` : `/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`} className="inline-flex items-center gap-1 text-[10px] font-black text-teal-600 hover:text-teal-700 transition-colors uppercase tracking-wider bg-white px-2 py-1 rounded shadow-sm border border-gray-200">
-                                        Configure Sections <ChevronRight size={12} />
+                                      <Link 
+                                        to={userType === 'admin' ? `/admin/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers` : `/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`} 
+                                        className="inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md border border-indigo-200 transition-colors uppercase tracking-wider"
+                                      >
+                                        Configure Sections <ChevronRight size={11} />
                                       </Link>
-                                    ) : !hasQp ? (
-                                      <button onClick={() => triggerTableUpload(paper)} className="inline-flex items-center gap-1 text-[10px] font-black text-teal-600 hover:text-teal-700 transition-colors uppercase tracking-wider bg-white px-2 py-1 rounded shadow-sm border border-gray-200">
-                                        Upload PDF <ChevronRight size={12} />
-                                      </button>
                                     ) : !hasEvaluators ? (
-                                      <button onClick={() => openAllocationModal(paper)} className="inline-flex items-center gap-1 text-[10px] font-black text-teal-600 hover:text-teal-700 transition-colors uppercase tracking-wider bg-white px-2 py-1 rounded shadow-sm border border-gray-200">
-                                        Assign Examiner <ChevronRight size={12} />
+                                      <button 
+                                        onClick={() => openAllocationModal(paper)} 
+                                        className="inline-flex items-center gap-1 text-[10px] font-black text-orange-700 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 px-2 py-0.5 rounded-md border border-orange-200 transition-colors uppercase tracking-wider cursor-pointer"
+                                      >
+                                        Assign Examiner <ChevronRight size={11} />
+                                      </button>
+                                    ) : !hasQp ? (
+                                      <button 
+                                        onClick={() => triggerTableUpload(paper)} 
+                                        className="inline-flex items-center gap-1 text-[10px] font-black text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md border border-blue-200 transition-colors uppercase tracking-wider cursor-pointer"
+                                      >
+                                        Upload PDF <ChevronRight size={11} />
                                       </button>
                                     ) : null}
                                   </div>
                                 )}
+
+                                {/* Compact horizontal micro-status checklist */}
+                                <div className="flex items-center gap-2.5 text-[11px] font-medium text-gray-600 mt-0.5">
+                                  <span 
+                                    className={`inline-flex items-center gap-1 ${hasSections && marksMatch ? 'text-emerald-700 font-semibold' : 'text-rose-600 font-bold'}`} 
+                                    title={hasSections && marksMatch ? `Sections & Marks: ${paper.sectionsCount || 0} sections, ${paper.configuredMarks}/${paper.maxMarks} marks` : (!hasSections ? 'Sections: 0 created' : `Marks mismatch: ${paper.configuredMarks}/${paper.maxMarks}`)}
+                                  >
+                                    {hasSections && marksMatch ? <CheckCircle2 size={12} className="text-emerald-600 shrink-0" /> : <X size={12} className="text-rose-500 shrink-0" />}
+                                    Sections
+                                  </span>
+                                  <span className="text-gray-300">•</span>
+                                  <span 
+                                    className={`inline-flex items-center gap-1 ${hasEvaluators ? 'text-emerald-700 font-semibold' : 'text-rose-600 font-bold'}`} 
+                                    title={hasEvaluators ? `Evaluators: ${paper.expertsCount} assigned` : 'Evaluators: None assigned'}
+                                  >
+                                    {hasEvaluators ? <CheckCircle2 size={12} className="text-emerald-600 shrink-0" /> : <X size={12} className="text-rose-500 shrink-0" />}
+                                    Evaluator
+                                  </span>
+                                  <span className="text-gray-300">•</span>
+                                  <span 
+                                    className={`inline-flex items-center gap-1 ${hasQp ? 'text-emerald-700 font-semibold' : 'text-rose-600 font-bold'}`} 
+                                    title={hasQp ? 'Question Paper: PDF uploaded' : 'Question Paper: PDF missing'}
+                                  >
+                                    {hasQp ? <CheckCircle2 size={12} className="text-emerald-600 shrink-0" /> : <X size={12} className="text-rose-500 shrink-0" />}
+                                    QP PDF
+                                  </span>
+                                </div>
                               </div>
                             );
                           })()}
@@ -1558,7 +1576,7 @@ export default function PapersManagement({ isTab = false }) {
                                 to={userType === 'admin' 
                                   ? `/admin/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`
                                   : `/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`}
-                                className="p-1.5 text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-all block"
+                                className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg transition-all block shadow-2xs"
                               >
                                 <Layers size={14} />
                               </Link>
@@ -1571,7 +1589,7 @@ export default function PapersManagement({ isTab = false }) {
                             <div className="relative group/tooltip inline-block">
                               <button
                                 onClick={() => openAllocationModal(paper)}
-                                className="p-1.5 text-gray-400 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-all block"
+                                className="p-1.5 text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 rounded-lg transition-all block shadow-2xs cursor-pointer"
                               >
                                 <Users size={14} />
                               </button>
@@ -1584,7 +1602,7 @@ export default function PapersManagement({ isTab = false }) {
                             <div className="relative group/tooltip inline-block">
                               <button
                                 onClick={() => handleEdit(paper)}
-                                className="p-1.5 text-gray-400 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-all block"
+                                className="p-1.5 text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200/80 rounded-lg transition-all block shadow-2xs cursor-pointer"
                               >
                                 <Edit2 size={14} />
                               </button>
