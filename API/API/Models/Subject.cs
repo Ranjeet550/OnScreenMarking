@@ -12,6 +12,7 @@ namespace API.Models
         public int SubjectId { get; set; }
         public string SubName { get; set; }
         public string SubCode { get; set; }
+        public int UniversityId { get; set; }
         public bool Status { get; set; } = true;
         public DateTime created_at { get; set; } = DateTime.UtcNow;
         public DateTime updated_at { get; set; } = DateTime.UtcNow;

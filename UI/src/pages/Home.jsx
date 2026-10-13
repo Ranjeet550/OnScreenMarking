@@ -480,23 +480,31 @@ const Home = () => {
                       {new Date(script.submittedAt || script.createdAt).toLocaleDateString()} at {new Date(script.submittedAt || script.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td className="px-5 py-2.5 text-right">
-                      {script.status === 'completed' ? (
-                        <button
-                          onClick={() => handleStartMarking(script)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer"
-                        >
-                          <Eye size={12} />
-                          Review Marks
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleStartMarking(script)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm cursor-pointer"
-                        >
-                          <Zap size={12} className="fill-white" />
-                          Evaluate Script
-                        </button>
-                      )}
+                      <div className="flex justify-end">
+                        <div className="relative group/tooltip">
+                          {script.status === 'completed' ? (
+                            <button
+                              onClick={() => handleStartMarking(script)}
+                              className="p-1.5 bg-blue-50/50 hover:bg-blue-100/70 text-blue-600 rounded-lg transition-all cursor-pointer border border-blue-200/50 hover:border-blue-300"
+                            >
+                              <Eye size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleStartMarking(script)}
+                              className="p-1.5 bg-teal-50/50 hover:bg-teal-100/70 text-teal-600 rounded-lg transition-all border border-teal-200/50 hover:border-teal-300 cursor-pointer"
+                            >
+                              <Zap size={14} />
+                            </button>
+                          )}
+                          <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-gray-900 text-white text-[10px] font-bold rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 whitespace-nowrap z-50 shadow-lg">
+                            {script.status === 'completed' ? 'Review Marks' : 'Evaluate Script'}
+                            <div className="absolute top-full right-4 transform -mt-1">
+                              <div className="border-4 border-transparent border-t-gray-900"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -560,19 +568,21 @@ const Home = () => {
               <FileText size={14} className="text-teal-600" />
               <span>Request New Scripts</span>
             </h2>
-            <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+            <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
               {assignedPapers.map((paper, idx) => (
-                <div key={idx} className="bg-gray-50 border border-gray-200 p-3.5 rounded-xl hover:border-teal-300 transition-colors flex flex-col justify-between group">
-                  <div>
-                    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{paper.paperCode}</div>
-                    <div className="text-xs font-bold text-gray-800 mt-0.5 leading-tight">{paper.paperName}</div>
+                <div key={idx} className="bg-gray-50/50 border border-gray-200/60 rounded-lg hover:border-teal-300 hover:bg-teal-50/30 transition-all group">
+                  <div className="p-3 flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{paper.subjectName || paper.paperCode}</div>
+                      <div className="text-xs font-bold text-gray-800 leading-tight truncate">{paper.paperName}</div>
+                    </div>
+                    <button 
+                      onClick={() => setRequestModalPaper(paper)}
+                      className="shrink-0 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[10px] uppercase font-bold tracking-wider rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <Zap size={12} /> Request
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => setRequestModalPaper(paper)}
-                    className="mt-3 w-full py-2 bg-teal-700 hover:bg-teal-800 text-white text-[10px] uppercase font-bold tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <Zap size={14} /> Request Allocation
-                  </button>
                 </div>
               ))}
             </div>
