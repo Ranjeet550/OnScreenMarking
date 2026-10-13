@@ -97,13 +97,13 @@ export default function QuestionTypeMaster() {
             </div>
             <button
               onClick={() => setShowForm(!showForm)}
-              className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-sm hover:shadow ${
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer ${
                 showForm 
-                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' 
+                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200' 
                   : 'bg-teal-700 hover:bg-teal-800 text-white'
               }`}
             >
-              <Plus size={16} className={showForm ? 'rotate-45 transition-transform' : 'transition-transform'} />
+              <Plus size={13} className={showForm ? 'rotate-45 transition-transform' : 'transition-transform'} />
               <span>{showForm ? 'Cancel' : 'Add Type'}</span>
             </button>
           </div>

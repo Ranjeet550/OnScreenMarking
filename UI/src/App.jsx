@@ -162,14 +162,6 @@ function AppRoutes() {
               element={userType === 'coordinator' ? <SessionProjectManagement /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
             />
             <Route 
-              path="/admin/question-types" 
-              element={userType === 'admin' ? <QuestionTypeMaster /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
-            />
-            <Route 
-              path="/question-types" 
-              element={userType === 'coordinator' ? <QuestionTypeMaster /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
-            />
-            <Route 
               path="/admin/section-masters" 
               element={userType === 'admin' ? <SectionMasterManagement /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
             />
@@ -178,6 +170,14 @@ function AppRoutes() {
               element={userType === 'coordinator' ? <SectionMasterManagement /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
             />
           </Route>
+          <Route 
+            path="/admin/question-types" 
+            element={userType === 'admin' ? <QuestionTypeMaster /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
+          />
+          <Route 
+            path="/question-types" 
+            element={userType === 'coordinator' ? <QuestionTypeMaster /> : isAuthenticated ? <Navigate to="/" replace /> : null} 
+          />
           <Route 
             path="/admin/projects" 
             element={userType === 'admin' ? <ProjectManagement /> : isAuthenticated ? <Navigate to="/" replace /> : null} 

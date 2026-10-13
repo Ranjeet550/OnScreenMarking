@@ -1212,7 +1212,7 @@ export default function PapersManagement({ isTab = false }) {
                       setEditingId(null);
                       setShowForm(true);
                     }}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-extrabold bg-teal-700 hover:bg-teal-800 text-white shadow-sm transition-all whitespace-nowrap"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={13} /> Add Paper
                   </button>
