@@ -11,6 +11,7 @@ namespace API.Models
         public int Id { get; set; }
         public string Name { get; set; }
         public string Type { get; set; }
+        public int UniversityId { get; set; }
         public bool IsActive { get; set; }
         // Navigation properties
         public ICollection<CourseSubject> CourseSubjects { get; set; } = new List<CourseSubject>();

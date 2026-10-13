@@ -312,6 +312,9 @@ namespace API.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<int>("UniversityId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.ToTable("Courses");
@@ -809,6 +812,31 @@ namespace API.Migrations
                         .IsUnique();
 
                     b.ToTable("PaperExaminers");
+                });
+
+            modelBuilder.Entity("API.Models.PaperSectionMaster", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("PaperId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SectionMasterId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SectionMasterId");
+
+                    b.HasIndex("PaperId", "SectionMasterId")
+                        .IsUnique();
+
+                    b.ToTable("PaperSectionMasters");
                 });
 
             modelBuilder.Entity("API.Models.PdfRecord", b =>
@@ -1325,8 +1353,8 @@ namespace API.Migrations
                     b.Property<int>("StartQuestion")
                         .HasColumnType("int");
 
-                    b.Property<int>("TotalMarks")
-                        .HasColumnType("int");
+                    b.Property<decimal>("TotalMarks")
+                        .HasColumnType("decimal(65,30)");
 
                     b.Property<int>("TotalQuestions")
                         .HasColumnType("int");
@@ -1366,8 +1394,8 @@ namespace API.Migrations
                     b.Property<int>("StartQuestion")
                         .HasColumnType("int");
 
-                    b.Property<int>("TotalMarks")
-                        .HasColumnType("int");
+                    b.Property<decimal>("TotalMarks")
+                        .HasColumnType("decimal(65,30)");
 
                     b.Property<int>("TotalQuestions")
                         .HasColumnType("int");
@@ -1417,6 +1445,9 @@ namespace API.Migrations
                     b.Property<string>("SubName")
                         .IsRequired()
                         .HasColumnType("longtext");
+
+                    b.Property<int>("UniversityId")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("created_at")
                         .HasColumnType("datetime(6)");
@@ -1915,6 +1946,25 @@ namespace API.Migrations
                     b.Navigation("Paper");
                 });
 
+            modelBuilder.Entity("API.Models.PaperSectionMaster", b =>
+                {
+                    b.HasOne("API.Models.Paper", "Paper")
+                        .WithMany("PaperSectionMasters")
+                        .HasForeignKey("PaperId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("API.Models.SectionMaster", "SectionMaster")
+                        .WithMany()
+                        .HasForeignKey("SectionMasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Paper");
+
+                    b.Navigation("SectionMaster");
+                });
+
             modelBuilder.Entity("API.Models.Project", b =>
                 {
                     b.HasOne("API.Models.Session", "Session")
@@ -2185,6 +2235,8 @@ namespace API.Migrations
 
             modelBuilder.Entity("API.Models.Paper", b =>
                 {
+                    b.Navigation("PaperSectionMasters");
+
                     b.Navigation("ProjectPapers");
 
                     b.Navigation("Sections");
