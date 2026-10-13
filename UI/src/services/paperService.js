@@ -95,13 +95,24 @@ const paperService = {
   },
 
   // Import papers from another project with optional master section allocation
-  importPapers: async (targetProjectId, sourcePaperIds, masterSectionIds = []) => {
+  importPapers: async (targetProjectIdOrOptions, sourcePaperIds, masterSectionIds = []) => {
+    let targetProjectId = targetProjectIdOrOptions;
+    let paperIds = sourcePaperIds;
+    let sectionIds = masterSectionIds;
+
+    // Support both object parameter { targetProjectId, sourcePaperIds, masterSectionIds } and positional arguments
+    if (typeof targetProjectIdOrOptions === 'object' && targetProjectIdOrOptions !== null) {
+      targetProjectId = targetProjectIdOrOptions.targetProjectId;
+      paperIds = targetProjectIdOrOptions.sourcePaperIds;
+      sectionIds = targetProjectIdOrOptions.masterSectionIds || [];
+    }
+
     return apiCall('/papers/import', {
       method: 'POST',
       body: JSON.stringify({
-        targetProjectId: targetProjectId,
-        sourcePaperIds: sourcePaperIds,
-        masterSectionIds: masterSectionIds
+        targetProjectId: Number(targetProjectId),
+        sourcePaperIds: Array.isArray(paperIds) ? paperIds.map(Number) : [],
+        masterSectionIds: Array.isArray(sectionIds) ? sectionIds.map(Number) : []
       }),
     });
   },
