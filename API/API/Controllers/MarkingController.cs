@@ -191,20 +191,150 @@ namespace API.Controllers
         {
             try
             {
-                var cacheKey = $"draft_marks_{scriptId}_{request.ExaminerId}";
-                var serializedData = JsonSerializer.Serialize(request.DraftData);
-                
-                var options = new DistributedCacheEntryOptions()
-                    .SetAbsoluteExpiration(TimeSpan.FromDays(7));
-                
-                await _cache.SetStringAsync(cacheKey, serializedData, options);
-                
+                // 1. Save to Redis Cache (for fast in-memory access)
+                try
+                {
+                    var cacheKey = $"draft_marks_{scriptId}_{request.ExaminerId}";
+                    var serializedData = JsonSerializer.Serialize(request.DraftData);
+                    
+                    var options = new DistributedCacheEntryOptions()
+                        .SetAbsoluteExpiration(TimeSpan.FromDays(7));
+                    
+                    await _cache.SetStringAsync(cacheKey, serializedData, options);
+                }
+                catch (Exception)
+                {
+                    // Ignore cache errors so database persistence continues
+                }
+
+                // 2. Persist Draft Question Marks to MySQL Database
+                try
+                {
+                    var marking = await _context.Markings
+                        .Include(m => m.QuestionMarks)
+                        .Include(m => m.Script)
+                            .ThenInclude(s => s.ProjectPaper).ThenInclude(pp => pp.Paper)
+                        .FirstOrDefaultAsync(m => m.ScriptId == scriptId && m.ExaminerId == request.ExaminerId);
+
+                    if (marking == null)
+                    {
+                        var allocation = await _context.Allocations
+                            .FirstOrDefaultAsync(a => a.ScriptId == scriptId && a.ExaminerId == request.ExaminerId);
+
+                        if (allocation != null)
+                        {
+                            marking = new Marking
+                            {
+                                ScriptId = scriptId,
+                                ExaminerId = request.ExaminerId,
+                                AllocationId = allocation.AllocationId,
+                                TotalMarks = 0,
+                                Percentage = 0,
+                                Remarks = "",
+                                Status = "draft",
+                                StartedAt = DateTime.UtcNow,
+                                EvaluatedPdfUrl = ""
+                            };
+                            _context.Markings.Add(marking);
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    if (marking != null && marking.Status != "submitted")
+                    {
+                        var parsedQuestionMarks = new List<(int QuestionId, decimal MarksAwarded, bool IsSkipped, string Remarks, bool IsAttempted)>();
+
+                        if (request.DraftData.ValueKind == JsonValueKind.Object)
+                        {
+                            foreach (var prop in request.DraftData.EnumerateObject())
+                            {
+                                if (int.TryParse(prop.Name, out int qId))
+                                {
+                                    var item = prop.Value;
+                                    decimal marksAwarded = item.TryGetProperty("marksAwarded", out var mp) && mp.ValueKind == JsonValueKind.Number ? mp.GetDecimal() : 0;
+                                    bool isSkipped = item.TryGetProperty("isSkipped", out var sp) && (sp.ValueKind == JsonValueKind.True || sp.ValueKind == JsonValueKind.False) && sp.GetBoolean();
+                                    string remarks = item.TryGetProperty("remarks", out var rp) && rp.ValueKind == JsonValueKind.String ? rp.GetString() ?? "" : "";
+                                    bool isAttempted = item.TryGetProperty("isAttempted", out var ap) && (ap.ValueKind == JsonValueKind.True || ap.ValueKind == JsonValueKind.False) && ap.GetBoolean();
+
+                                    parsedQuestionMarks.Add((qId, marksAwarded, isSkipped, remarks, isAttempted));
+                                }
+                            }
+                        }
+                        else if (request.DraftData.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in request.DraftData.EnumerateArray())
+                            {
+                                int qId = item.TryGetProperty("questionId", out var qp) && qp.ValueKind == JsonValueKind.Number ? qp.GetInt32() : 0;
+                                if (qId > 0)
+                                {
+                                    decimal marksAwarded = item.TryGetProperty("marksAwarded", out var mp) && mp.ValueKind == JsonValueKind.Number ? mp.GetDecimal() : 0;
+                                    bool isSkipped = item.TryGetProperty("isSkipped", out var sp) && (sp.ValueKind == JsonValueKind.True || sp.ValueKind == JsonValueKind.False) && sp.GetBoolean();
+                                    string remarks = item.TryGetProperty("remarks", out var rp) && rp.ValueKind == JsonValueKind.String ? rp.GetString() ?? "" : "";
+                                    bool isAttempted = item.TryGetProperty("isAttempted", out var ap) && (ap.ValueKind == JsonValueKind.True || ap.ValueKind == JsonValueKind.False) && ap.GetBoolean();
+
+                                    parsedQuestionMarks.Add((qId, marksAwarded, isSkipped, remarks, isAttempted));
+                                }
+                            }
+                        }
+
+                        if (parsedQuestionMarks.Any())
+                        {
+                            var existingMap = marking.QuestionMarks.ToDictionary(qm => qm.QuestionId);
+                            decimal totalMarks = 0;
+
+                            foreach (var qm in parsedQuestionMarks)
+                            {
+                                if (existingMap.TryGetValue(qm.QuestionId, out var existingQm))
+                                {
+                                    existingQm.MarksAwarded = qm.MarksAwarded;
+                                    existingQm.IsSkipped = qm.IsSkipped;
+                                    existingQm.Remarks = qm.Remarks ?? "";
+                                    existingQm.IsAttempted = qm.IsAttempted;
+                                    _context.Entry(existingQm).State = EntityState.Modified;
+                                }
+                                else
+                                {
+                                    var newQm = new QuestionMark
+                                    {
+                                        MarkingId = marking.Id,
+                                        QuestionId = qm.QuestionId,
+                                        MarksAwarded = qm.MarksAwarded,
+                                        IsSkipped = qm.IsSkipped,
+                                        Remarks = qm.Remarks ?? "",
+                                        IsAttempted = qm.IsAttempted
+                                    };
+                                    _context.QuestionMarks.Add(newQm);
+                                }
+
+                                if (!qm.IsSkipped)
+                                {
+                                    totalMarks += qm.MarksAwarded;
+                                }
+                            }
+
+                            decimal maxMarks = marking.Script?.ProjectPaper?.Paper?.MaxMarks ?? 100;
+                            if (maxMarks <= 0) maxMarks = 100;
+
+                            marking.TotalMarks = totalMarks;
+                            marking.Percentage = (totalMarks / maxMarks) * 100;
+                            marking.UpdatedAt = DateTime.UtcNow;
+
+                            _context.Markings.Update(marking);
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // Ignore DB errors in background draft save so response is fast
+                }
+
                 return Ok(new { success = true, message = "Draft saved successfully" });
             }
             catch (Exception ex)
             {
-                // Return success=true to ignore Redis timeouts/errors
-                return Ok(new { success = true, message = "Draft save skipped due to cache error", error = ex.Message });
+                // Return success=true to ignore errors
+                return Ok(new { success = true, message = "Draft save skipped due to error", error = ex.Message });
             }
         }
 
@@ -214,20 +344,49 @@ namespace API.Controllers
         {
             try
             {
+                // 1. Try Redis cache first
                 var cacheKey = $"draft_marks_{scriptId}_{examinerId}";
-                var draftDataStr = await _cache.GetStringAsync(cacheKey);
-                
-                if (string.IsNullOrEmpty(draftDataStr))
+                string draftDataStr = null;
+                try
                 {
-                    return Ok(new { success = true, draftData = (object)null });
+                    draftDataStr = await _cache.GetStringAsync(cacheKey);
                 }
-                
-                var draftData = JsonSerializer.Deserialize<JsonElement>(draftDataStr);
-                return Ok(new { success = true, draftData });
+                catch {}
+
+                if (!string.IsNullOrEmpty(draftDataStr))
+                {
+                    var draftData = JsonSerializer.Deserialize<JsonElement>(draftDataStr);
+                    return Ok(new { success = true, draftData });
+                }
+
+                // 2. Fallback to Database QuestionMarks if cache is empty or unavailable
+                var marking = await _context.Markings
+                    .Include(m => m.QuestionMarks)
+                        .ThenInclude(qm => qm.Question)
+                    .FirstOrDefaultAsync(m => m.ScriptId == scriptId && m.ExaminerId == examinerId);
+
+                if (marking != null && marking.QuestionMarks.Any())
+                {
+                    var dbDraft = new Dictionary<string, object>();
+                    foreach (var qm in marking.QuestionMarks)
+                    {
+                        dbDraft[qm.QuestionId.ToString()] = new
+                        {
+                            marksAwarded = qm.MarksAwarded,
+                            isSkipped = qm.IsSkipped,
+                            remarks = qm.Remarks ?? "",
+                            isAttempted = qm.IsAttempted,
+                            maxMarks = qm.Question?.Marks ?? 0,
+                            questionNo = qm.Question?.QuestionNo ?? ""
+                        };
+                    }
+                    return Ok(new { success = true, draftData = dbDraft });
+                }
+
+                return Ok(new { success = true, draftData = (object)null });
             }
             catch (Exception ex)
             {
-                // Return success=true with null data to ignore Redis timeouts/errors
                 return Ok(new { success = true, draftData = (object)null, error = ex.Message });
             }
         }
