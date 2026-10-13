@@ -175,9 +175,9 @@ export default function ProjectManagement() {
               
               <button
                 onClick={() => setShowForm(!showForm)}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold text-[11px] uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-sm shadow-teal-700/20"
+                className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
               >
-                <Plus size={14} />
+                <Plus size={13} />
                 <span>{showForm ? 'Cancel' : 'Add Project'}</span>
               </button>
             </div>

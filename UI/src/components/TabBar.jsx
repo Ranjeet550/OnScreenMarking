@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, School, Building2, GraduationCap, BookOpen,
   Calendar, FileText, Layers, Users, Shield, Zap, Activity,
@@ -9,6 +9,9 @@ import { encryptId } from '../utils/encryption';
 
 const TabBar = () => {
   const { userType, hasPermission } = useAuth();
+  const location = useLocation();
+  const currentParams = new URLSearchParams(location.search);
+  const currentTab = currentParams.get('tab') || '';
 
   const selectedProjectId = sessionStorage.getItem('selectedProjectId');
   const encryptedProjId = selectedProjectId ? encryptId(selectedProjectId) : '';
@@ -20,8 +23,8 @@ const TabBar = () => {
 
   const allocationPath =
     userType === 'admin'
-      ? encryptedProjId ? `/admin/allocate-scripts?projectId=${encryptedProjId}` : '/admin/allocate-scripts'
-      : encryptedProjId ? `/allocate-scripts?projectId=${encryptedProjId}` : '/allocate-scripts';
+      ? encryptedProjId ? `/admin/project-dashboard?projectId=${encryptedProjId}&tab=allocations` : '/admin/project-dashboard?tab=allocations'
+      : encryptedProjId ? `/project-dashboard?projectId=${encryptedProjId}&tab=allocations` : '/project-dashboard?tab=allocations';
 
   const getLinks = () => {
     const links = [];
@@ -93,14 +96,20 @@ const TabBar = () => {
       <nav className="flex items-stretch px-4 gap-0.5 min-w-0">
         {links.map((link) => {
           const Icon = link.icon;
+          const itemUrl = new URL(link.path, window.location.origin);
+          const itemTab = itemUrl.searchParams.get('tab') || '';
+          const isCustomActive = itemUrl.pathname === location.pathname && (
+            itemTab ? currentTab === itemTab : (!currentTab || currentTab === 'project-dashboard')
+          );
+
           return (
             <NavLink
               key={link.path}
               to={link.path}
               end={link.path === '/' || link.path === '/admin/dashboard' || link.path === '/coordinator/dashboard'}
-              className={({ isActive }) =>
+              className={() =>
                 `relative flex items-center gap-1.5 px-3 text-[12.5px] font-medium whitespace-nowrap transition-all select-none
-                  ${isActive
+                  ${isCustomActive
                     ? 'text-zinc-900 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-amber-500 after:rounded-t'
                     : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'
                   }`

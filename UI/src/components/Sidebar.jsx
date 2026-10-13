@@ -1,10 +1,13 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Home, FileText, BarChart3, Settings, Users, BookOpen, PenTool, Layers, School, Building2, Calendar, ClipboardList, Shield, UserCheck, GraduationCap, Zap } from 'lucide-react';
 import { encryptId } from '../utils/encryption';
 
 const Sidebar = () => {
   const { userType, hasPermission } = useAuth();
+  const location = useLocation();
+  const currentParams = new URLSearchParams(location.search);
+  const currentTab = currentParams.get('tab') || '';
   
   const selectedProjectId = sessionStorage.getItem('selectedProjectId');
   const encryptedProjId = selectedProjectId ? encryptId(selectedProjectId) : '';
@@ -17,8 +20,8 @@ const Sidebar = () => {
       : (encryptedProjId ? `/papers?projectId=${encryptedProjId}` : '/papers');
 
     const allocationPath = userType === 'admin'
-      ? (encryptedProjId ? `/admin/allocate-scripts?projectId=${encryptedProjId}` : '/admin/allocate-scripts')
-      : (encryptedProjId ? `/allocate-scripts?projectId=${encryptedProjId}` : '/allocate-scripts');
+      ? (encryptedProjId ? `/admin/project-dashboard?projectId=${encryptedProjId}&tab=allocations` : '/admin/project-dashboard?tab=allocations')
+      : (encryptedProjId ? `/project-dashboard?projectId=${encryptedProjId}&tab=allocations` : '/project-dashboard?tab=allocations');
 
     if (userType === 'admin') {
       items.push({ icon: <Home size={20} />, label: 'Dashboard', path: '/admin/dashboard' });
@@ -96,22 +99,30 @@ const Sidebar = () => {
   return (
     <aside className="w-64 h-[calc(100vh-4rem)] bg-white border-r border-gray-200 sticky top-16 overflow-y-auto">
       <div className="p-4 space-y-2">
-        {menuItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                isActive
-                  ? 'bg-teal-50 text-teal-700 font-medium'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`
-            }
-          >
-            {item.icon}
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
+        {menuItems.map((item) => {
+          const itemUrl = new URL(item.path, window.location.origin);
+          const itemTab = itemUrl.searchParams.get('tab') || '';
+          const isCustomActive = itemUrl.pathname === location.pathname && (
+            itemTab ? currentTab === itemTab : (!currentTab || currentTab === 'project-dashboard')
+          );
+
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={() =>
+                `flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                  isCustomActive
+                    ? 'bg-teal-50 text-teal-700 font-medium'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`
+              }
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </NavLink>
+          );
+        })}
       </div>
     </aside>
   );

@@ -134,9 +134,9 @@ export default function UniversityManagement() {
 
               <button
                 onClick={() => setShowFormModal(true)}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-sm hover:shadow bg-teal-700 hover:bg-teal-800 text-white"
+                className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
               >
-                <Plus size={16} />
+                <Plus size={13} />
                 <span>Add University</span>
               </button>
             </div>

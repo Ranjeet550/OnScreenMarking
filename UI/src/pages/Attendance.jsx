@@ -368,10 +368,10 @@ export default function Attendance({ isTab = false }) {
             </div>
             <button
               onClick={downloadTemplate}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-md font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-sm hover:shadow bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200"
+              className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
             >
-              <Download size={16} />
-              Download Template
+              <Download size={13} />
+              <span>Download Template</span>
             </button>
           </div>
         </div>

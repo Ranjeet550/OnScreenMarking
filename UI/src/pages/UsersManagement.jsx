@@ -257,69 +257,71 @@ export default function UsersManagement() {
               )}
               
               {hasPermission('CREATE_USER') && (
-                <button
-                  onClick={() => setShowAddUserModal(true)}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-sm hover:shadow bg-teal-700 hover:bg-teal-800 text-white"
-                >
-                  <UserPlus size={16} />
-                  <span>Add User</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowAddUserModal(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
+                  >
+                    <UserPlus size={13} />
+                    <span>Add User</span>
+                  </button>
+                  <button
+                    onClick={() => setShowInviteModal(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-md font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
+                  >
+                    <Mail size={13} />
+                    <span>Invite User</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
         </div>
-          
-        {/* Tab Selection Controls */}
-        <div className="bg-white px-4 py-3 rounded-xl border border-gray-100 shadow-sm">
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setActiveTab("all")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold transition-all text-xs uppercase tracking-wider cursor-pointer ${
-                activeTab === "all"
-                  ? "bg-teal-700 text-white shadow-sm"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 bg-gray-50"
-              }`}
-            >
-              <Users size={14} />
-              <span>All Users</span>
-              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
-                activeTab === "all" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-600"
-              }`}>
-                {totalCount}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("pending")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold transition-all text-xs uppercase tracking-wider cursor-pointer ${
-                activeTab === "pending"
-                  ? "bg-teal-700 text-white shadow-sm"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 bg-gray-50"
-              }`}
-            >
-              <UserCheck size={14} />
-              <span>Pending Approvals</span>
-              {pendingCount > 0 && (
-                <span className="bg-red-500 text-white font-extrabold text-[8px] px-1.5 py-0.5 rounded leading-none animate-pulse">
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-
-            {hasPermission('CREATE_USER') && (
+        {/* Main Table Area with Integrated Tab Bar */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden animate-fade-in">
+          {/* ── TOOLBAR: Tabs left | Actions right ── */}
+          <div className="flex items-center border-b border-gray-100 bg-white">
+            {/* LEFT: Tab switcher */}
+            <div className="flex items-stretch h-full shrink-0 overflow-x-auto">
               <button
-                onClick={() => setShowInviteModal(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold transition-all text-xs uppercase tracking-wider cursor-pointer text-gray-600 hover:bg-gray-50 hover:text-gray-900 bg-gray-50"
+                onClick={() => setActiveTab("all")}
+                className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap cursor-pointer ${
+                  activeTab === "all"
+                    ? 'border-teal-600 text-teal-700 bg-teal-50/50'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                }`}
               >
-                <Mail size={14} />
-                <span>Invite User</span>
+                <Users size={13} className={activeTab === "all" ? 'text-teal-700' : 'text-gray-400'} />
+                <span>All Users</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${
+                  activeTab === "all" ? "bg-teal-100 text-teal-800" : "bg-gray-100 text-gray-600"
+                }`}>
+                  {totalCount}
+                </span>
               </button>
-            )}
-          </div>
-        </div>
 
-        {/* Tab Content 1: All Users & 2: Pending Approvals */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden animate-fade-in">
+              <button
+                onClick={() => setActiveTab("pending")}
+                className={`flex items-center gap-2 px-5 py-4 text-xs font-extrabold tracking-wide border-b-2 transition-all duration-150 whitespace-nowrap cursor-pointer ${
+                  activeTab === "pending"
+                    ? 'border-teal-600 text-teal-700 bg-teal-50/50'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                }`}
+              >
+                <UserCheck size={13} className={activeTab === "pending" ? 'text-teal-700' : 'text-gray-400'} />
+                <span>Pending Approvals</span>
+                {pendingCount > 0 && (
+                  <span className="bg-red-500 text-white font-extrabold text-[9px] px-1.5 py-0.5 rounded leading-none animate-pulse">
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+
+            </div>
+
+            {/* DIVIDER */}
+            <div className="flex-1" />
+          </div>
             {loading && users.length === 0 ? (
               <div className="p-12 text-center text-gray-400 font-bold text-xs flex flex-col items-center gap-3">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
