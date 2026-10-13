@@ -162,8 +162,11 @@ namespace API.Controllers
                 if (existingMarking == null)
                     return NotFound(new { success = false, message = "Marking not found" });
 
-                if (existingMarking.Status == "submitted")
-                    return BadRequest(new { success = false, message = "Cannot update submitted marking" });
+                var loggedInUserIdStr = User.FindFirst("id")?.Value;
+                if (!string.IsNullOrEmpty(loggedInUserIdStr) && existingMarking.ExaminerId != int.Parse(loggedInUserIdStr))
+                {
+                    return StatusCode(403, new { success = false, message = "You do not have permission to modify this marking." });
+                }
 
                 decimal maxMarks = existingMarking.Script?.ProjectPaper?.Paper?.MaxMarks ?? 100;
                 if (maxMarks <= 0) maxMarks = 100;
@@ -174,7 +177,16 @@ namespace API.Controllers
                 existingMarking.EvaluatedPdfUrl = request.EvaluatedPdfUrl ?? "";
                 existingMarking.UpdatedAt = DateTime.UtcNow;
 
-                _context.Markings.Update(existingMarking);
+                // If previously submitted, allow examiner to re-evaluate/update marks and transition to in_progress
+                if (existingMarking.Status == "submitted")
+                {
+                    existingMarking.Status = "in_progress";
+                    if (existingMarking.Script != null && existingMarking.Script.Status == "completed")
+                    {
+                        existingMarking.Script.Status = "marking";
+                    }
+                }
+
                 await _context.SaveChangesAsync();
 
                 return Ok(new { success = true, message = "Marking updated successfully" });
@@ -240,7 +252,7 @@ namespace API.Controllers
                         }
                     }
 
-                    if (marking != null && marking.Status != "submitted")
+                    if (marking != null)
                     {
                         var parsedQuestionMarks = new List<(int QuestionId, decimal MarksAwarded, bool IsSkipped, string Remarks, bool IsAttempted)>();
 
@@ -318,8 +330,6 @@ namespace API.Controllers
                             marking.TotalMarks = totalMarks;
                             marking.Percentage = (totalMarks / maxMarks) * 100;
                             marking.UpdatedAt = DateTime.UtcNow;
-
-                            _context.Markings.Update(marking);
                             await _context.SaveChangesAsync();
                         }
                     }
@@ -399,41 +409,66 @@ namespace API.Controllers
             {
                 var marking = await _context.Markings
                     .Include(m => m.Script)
+                        .ThenInclude(s => s.ProjectPaper)
+                            .ThenInclude(pp => pp.Paper)
+                    .Include(m => m.QuestionMarks)
                     .FirstOrDefaultAsync(m => m.Id == id);
 
                 if (marking == null)
                     return NotFound(new { success = false, message = "Marking not found" });
 
+                if (marking.Script == null)
+                    return BadRequest(new { success = false, message = "Script not found for this marking" });
+
+                // Allow re-submission if script status is not completed (means previous submit failed)
+                bool isResubmission = marking.Status == "submitted" && marking.Script.Status != "completed";
+
+                // Recalculate total marks from question marks to ensure accuracy
+                decimal totalMarks = marking.QuestionMarks
+                    .Where(qm => !qm.IsSkipped)
+                    .Sum(qm => qm.MarksAwarded);
+
+                marking.TotalMarks = totalMarks;
+                
+                // Recalculate percentage
+                decimal maxMarks = marking.Script?.ProjectPaper?.Paper?.MaxMarks ?? 100;
+                if (maxMarks <= 0) maxMarks = 100;
+                marking.Percentage = (totalMarks / maxMarks) * 100;
+
                 marking.Status = "submitted";
                 marking.SubmittedAt = DateTime.UtcNow;
                 marking.UpdatedAt = DateTime.UtcNow;
 
-                _context.Markings.Update(marking);
-
                 // Update script status
-                var script = marking.Script;
-                if (script != null)
-                {
-                    script.Status = "completed";
-                    script.TotalMarks = marking.TotalMarks;
-                    script.Percentage = marking.Percentage;
-                    script.Remarks = marking.Remarks;
-                    script.SubmittedAt = DateTime.UtcNow;
-                    script.UpdatedAt = DateTime.UtcNow;
-                    _context.Scripts.Update(script);
-                }
+                marking.Script.Status = "completed";
+                marking.Script.TotalMarks = totalMarks;
+                marking.Script.Percentage = marking.Percentage;
+                marking.Script.Remarks = marking.Remarks;
+                marking.Script.SubmittedAt = DateTime.UtcNow;
+                marking.Script.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
 
                 // Clear the draft from Redis
-                var cacheKey = $"draft_marks_{script.Id}_{marking.ExaminerId}";
+                var cacheKey = $"draft_marks_{marking.Script.Id}_{marking.ExaminerId}";
                 await _cache.RemoveAsync(cacheKey);
 
-                return Ok(new { success = true, message = "Marking submitted successfully" });
+                return Ok(new { 
+                    success = true, 
+                    message = isResubmission ? "Marking re-submitted successfully" : "Marking submitted successfully",
+                    totalMarks = marking.TotalMarks,
+                    percentage = marking.Percentage,
+                    scriptStatus = marking.Script.Status,
+                    isResubmission = isResubmission
+                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { 
+                    success = false, 
+                    message = ex.Message,
+                    stackTrace = ex.StackTrace
+                });
             }
         }
 
@@ -656,8 +691,17 @@ namespace API.Controllers
                     return StatusCode(403, new { success = false, message = "You do not have permission to modify this marking." });
                 }
 
+                // If previously submitted, allow re-evaluation — reset status so marks can be updated
                 if (marking.Status == "submitted")
-                    return BadRequest(new { success = false, message = "Cannot update submitted marking" });
+                {
+                    marking.Status = "in_progress";
+                    if (marking.Script != null && marking.Script.Status == "completed")
+                    {
+                        marking.Script.Status = "marking";
+                        marking.Script.UpdatedAt = DateTime.UtcNow;
+                    }
+                    marking.UpdatedAt = DateTime.UtcNow;
+                }
 
                 var questionIds = questionMarks.Select(qm => qm.QuestionId).ToList();
                 var questions = await _context.Questions
