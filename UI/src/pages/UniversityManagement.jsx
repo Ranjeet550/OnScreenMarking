@@ -15,6 +15,8 @@ export default function UniversityManagement() {
     isActive: true
   });
   const [saving, setSaving] = useState(false);
+  const [universityToDelete, setUniversityToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Define fetch function for useTable to load universities with pagination
   const fetchFn = useCallback(async (params) => {
@@ -75,19 +77,26 @@ export default function UniversityManagement() {
     setShowFormModal(true);
   };
 
-  const handleDelete = async (university) => {
-    if (window.confirm('Are you sure you want to mark this university as inactive?')) {
-      try {
-        await universityService.updateUniversity(university.universityId, {
-          universityName: university.universityName,
-          isActive: false
-        });
-        message.success('University marked as inactive');
-        refreshUniversities();
-      } catch (err) {
-        message.error('Failed to update university status');
-        console.error(err);
-      }
+  const handleDeleteClick = (university) => {
+    setUniversityToDelete(university);
+  };
+
+  const confirmDelete = async () => {
+    if (!universityToDelete) return;
+    setIsDeleting(true);
+    try {
+      await universityService.updateUniversity(universityToDelete.universityId, {
+        universityName: universityToDelete.universityName,
+        isActive: false
+      });
+      message.success('University marked as inactive');
+      setUniversityToDelete(null);
+      refreshUniversities();
+    } catch (err) {
+      message.error('Failed to update university status');
+      console.error(err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -221,8 +230,8 @@ export default function UniversityManagement() {
                             <Edit2 size={16} />
                           </button>
                           <button
-                            onClick={() => handleDelete(university)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
+                            onClick={() => handleDeleteClick(university)}
+                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
                             title="Mark Inactive"
                           >
                             <Trash2 size={16} />
@@ -323,6 +332,71 @@ export default function UniversityManagement() {
                 {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete / Inactive Confirmation Modal */}
+      {universityToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 select-none animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-sm w-full overflow-hidden border border-gray-100 shadow-2xl flex flex-col animate-scale-up">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={16} />
+                </div>
+                <h3 className="text-base font-black text-gray-900 tracking-tight leading-none">
+                  Mark University Inactive
+                </h3>
+              </div>
+              <button 
+                onClick={() => setUniversityToDelete(null)}
+                disabled={isDeleting}
+                className="p-1.5 bg-white hover:bg-gray-100 border border-gray-200 text-gray-500 rounded-md transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Are you sure you want to mark <span className="font-extrabold text-gray-900">{universityToDelete.universityName}</span> as inactive? Users and associated records belonging to this university will be affected.
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2.5 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setUniversityToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 rounded-md font-bold text-xs cursor-pointer transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-bold text-xs cursor-pointer shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} />
+                    <span>Confirm Inactive</span>
+                  </>
+                )}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
