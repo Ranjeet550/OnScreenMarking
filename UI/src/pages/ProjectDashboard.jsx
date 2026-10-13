@@ -526,7 +526,7 @@ export default function ProjectDashboard() {
                         <SortHeader label="Allocated" field="allocatedScripts" isCenter={true} className="min-w-[55px]" />
                         <SortHeader label="Completed" field="completedScripts" isCenter={true} className="min-w-[55px]" />
                         <th className="px-2.5 py-3 text-center min-w-[90px]">Stage</th>
-                        <th className="sticky right-0 z-20 bg-gray-50 px-3 py-3 text-center min-w-[210px] shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-gray-200/80">Actions</th>
+                        <th className="sticky right-0 z-20 bg-gray-50 px-3 py-3 text-center w-28 min-w-[110px] shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-gray-200/80">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-xs font-bold text-gray-700">
@@ -610,63 +610,102 @@ export default function ProjectDashboard() {
                                 {stageText}
                               </span>
                             </td>
-                            <td className={`sticky right-0 z-10 px-3 py-2.5 text-center whitespace-nowrap shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-gray-100 ${selectedPaperIds.includes(paper.paperId) ? 'bg-[#f4f8fc]' : 'bg-white group-hover:bg-gray-50'}`}>
+                            <td className={`sticky right-0 z-10 px-3 py-2.5 text-center whitespace-nowrap w-28 min-w-[110px] shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-gray-100 ${selectedPaperIds.includes(paper.paperId) ? 'bg-[#f4f8fc]' : 'bg-white group-hover:bg-gray-50'}`}>
                               <div className="flex items-center justify-center gap-1.5">
-                                {/* Allocate Button */}
-                                {!isAllocateDisabled ? (
-                                  <Link 
-                                    to={userType === 'admin'
-                                      ? `/admin/allocate-scripts?projectId=${encryptedProjectId}&paperId=${paper.paperId}`
-                                      : `/allocate-scripts?projectId=${encryptedProjectId}&paperId=${paper.paperId}`}
-                                    title="Allocate Scripts"
-                                    className="inline-flex items-center gap-1 bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-[9px] uppercase tracking-wider px-2 py-1.5 rounded-md shadow-sm transition-all"
-                                  >
-                                    <Zap size={11} />
-                                    <span>Allocate</span>
-                                  </Link>
-                                ) : (
-                                  <button
-                                    disabled
-                                    className="inline-flex items-center gap-1 bg-gray-100 text-gray-400 font-extrabold text-[9px] uppercase tracking-wider px-2 py-1.5 rounded-md cursor-not-allowed border border-gray-200"
-                                    title={currentStage < 3 ? "Complete previous stages first" : "No scripts pending"}
-                                  >
-                                    <Zap size={11} />
-                                    <span>Allocate</span>
-                                  </button>
-                                )}
+                                {/* Allocate Scripts Button */}
+                                <div className="relative group/tooltip inline-block">
+                                  {!isAllocateDisabled ? (
+                                    <Link 
+                                      to={userType === 'admin'
+                                        ? `/admin/allocate-scripts?projectId=${encryptedProjectId}&paperId=${paper.paperId}`
+                                        : `/allocate-scripts?projectId=${encryptedProjectId}&paperId=${paper.paperId}`}
+                                      title="Allocate Scripts: Allocate pending scripts to examiners"
+                                      className="p-1.5 text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200/80 rounded-lg transition-all block shadow-2xs"
+                                    >
+                                      <Zap size={14} />
+                                    </Link>
+                                  ) : (
+                                    <button
+                                      disabled
+                                      className="p-1.5 text-gray-300 bg-gray-50 border border-gray-200/60 rounded-lg cursor-not-allowed block shadow-2xs"
+                                      title={currentStage < 3 ? "Allocate Scripts: Requires sections & assigned examiners" : "Allocate Scripts: No pending scripts"}
+                                    >
+                                      <Zap size={14} />
+                                    </button>
+                                  )}
+                                  <div className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all whitespace-nowrap z-50 pointer-events-none text-left">
+                                    <div className="font-bold text-gray-100 flex items-center gap-1">
+                                      <Zap size={10} className="text-teal-400" /> Allocate Scripts
+                                    </div>
+                                    <div className="text-[9px] text-gray-300 font-normal mt-0.5">
+                                      {!isAllocateDisabled
+                                        ? (paper.pendingScripts > 0 ? `Allocate ${paper.pendingScripts} pending script${paper.pendingScripts > 1 ? 's' : ''}` : "Allocate scripts to examiners")
+                                        : (currentStage < 3 ? "Complete previous stages first" : "No pending scripts to allocate")}
+                                    </div>
+                                    <div className="absolute top-full right-3 border-4 border-transparent border-t-gray-900"></div>
+                                  </div>
+                                </div>
 
                                 {/* Configure Sections Button */}
-                                <Link 
-                                  to={userType === 'admin'
-                                    ? `/admin/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`
-                                    : `/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`}
-                                  title={!isConfigured ? 'Configure Sections' : 'Edit Sections'}
-                                  className={`inline-flex items-center gap-1 font-extrabold text-[9px] uppercase tracking-wider px-2 py-1.5 rounded-md transition-all duration-200 shadow-sm ${
-                                    !isConfigured
-                                      ? 'bg-teal-700 hover:bg-teal-800 text-white'
-                                      : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'
-                                  }`}
-                                >
-                                  <Layers size={11} />
-                                  <span>Sections</span>
-                                </Link>
-                                
-                                {/* Assign Examiner Button */}
-                                {!isAssignDisabled && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      window.location.href = userType === 'admin' 
-                                        ? `/admin/papers?projectId=${encryptedProjectId}&action=assign&paperId=${paper.paperId}`
-                                        : `/papers?projectId=${encryptedProjectId}&action=assign&paperId=${paper.paperId}`;
-                                    }}
-                                    title="Assign Examiners"
-                                    className="inline-flex items-center gap-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 font-extrabold text-[9px] uppercase tracking-wider px-2 py-1.5 rounded-md transition-all duration-200 shadow-sm"
+                                <div className="relative group/tooltip inline-block">
+                                  <Link 
+                                    to={userType === 'admin'
+                                      ? `/admin/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`
+                                      : `/section-config?projectId=${encryptedProjectId}&subjectId=${encryptId(paper.subjectId || 0)}&paperId=${encryptId(paper.paperId)}&from=papers`}
+                                    title={!isConfigured ? 'Configure Sections: Create question sections & set marks' : 'Edit Sections: View/modify section configuration'}
+                                    className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg transition-all block shadow-2xs"
                                   >
-                                    <Users size={11} />
-                                    <span>Assign</span>
-                                  </button>
-                                )}
+                                    <Layers size={14} />
+                                  </Link>
+                                  <div className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all whitespace-nowrap z-50 pointer-events-none text-left">
+                                    <div className="font-bold text-gray-100 flex items-center gap-1">
+                                      <Layers size={10} className="text-indigo-400" /> {!isConfigured ? "Configure Sections" : "Edit Sections"}
+                                    </div>
+                                    <div className="text-[9px] text-gray-300 font-normal mt-0.5">
+                                      {!isConfigured
+                                        ? (!paper.isSectionsConfigured ? "Create sections & set max marks" : `Balance marks: ${paper.configuredMarks}/${paper.maxMarks}`)
+                                        : `Sections configured (${paper.configuredMarks} marks)`}
+                                    </div>
+                                    <div className="absolute top-full right-3 border-4 border-transparent border-t-gray-900"></div>
+                                  </div>
+                                </div>
+                                
+                                {/* Assign Examiners Button */}
+                                <div className="relative group/tooltip inline-block">
+                                  {!isAssignDisabled ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        window.location.href = userType === 'admin' 
+                                          ? `/admin/papers?projectId=${encryptedProjectId}&action=assign&paperId=${paper.paperId}`
+                                          : `/papers?projectId=${encryptedProjectId}&action=assign&paperId=${paper.paperId}`;
+                                      }}
+                                      title="Assign Examiners: Assign examiners to evaluate scripts"
+                                      className="p-1.5 text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 rounded-lg transition-all block shadow-2xs cursor-pointer"
+                                    >
+                                      <Users size={14} />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      disabled
+                                      className="p-1.5 text-gray-300 bg-gray-50 border border-gray-200/60 rounded-lg cursor-not-allowed block shadow-2xs"
+                                      title="Assign Examiners: Configure sections first"
+                                    >
+                                      <Users size={14} />
+                                    </button>
+                                  )}
+                                  <div className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg shadow-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all whitespace-nowrap z-50 pointer-events-none text-left">
+                                    <div className="font-bold text-gray-100 flex items-center gap-1">
+                                      <Users size={10} className="text-orange-400" /> Assign Examiners
+                                    </div>
+                                    <div className="text-[9px] text-gray-300 font-normal mt-0.5">
+                                      {!isAssignDisabled
+                                        ? ((paper.expertsCount || 0) > 0 ? `${paper.expertsCount} examiner${paper.expertsCount > 1 ? 's' : ''} assigned` : "Assign examiners to paper")
+                                        : "Configure sections first"}
+                                    </div>
+                                    <div className="absolute top-full right-3 border-4 border-transparent border-t-gray-900"></div>
+                                  </div>
+                                </div>
                               </div>
                             </td>
                           </tr>
