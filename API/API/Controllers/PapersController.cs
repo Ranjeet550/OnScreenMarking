@@ -881,10 +881,7 @@ namespace API.Controllers
                 if (paper == null)
                     return NotFound(new { success = false, message = "Paper not found" });
 
-                var basePath = _configuration["StorageSettings:BasePath"] 
-                    ?? _configuration["StorageSettings:BaseOsmPath"] 
-                    ?? Path.Combine(_environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "storage");
-
+                var basePath = _configuration["StorageSettings:BasePath"];
                 var projFolder = (projectId.HasValue && projectId.Value > 0) ? projectId.Value.ToString() : "master";
                 var targetFolder = Path.Combine(basePath, "OSM", projFolder, paper.PaperId.ToString(), "questionpaperpdf");
                 if (!Directory.Exists(targetFolder))
