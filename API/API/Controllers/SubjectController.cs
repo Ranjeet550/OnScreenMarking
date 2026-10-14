@@ -77,6 +77,7 @@ namespace API.Controllers
                     subjectId = s.SubjectId,
                     subName = s.SubName,
                     subCode = s.SubCode,
+                    universityId = s.UniversityId,
                     status = s.Status,
                     departmentSubjects = s.DepartmentSubjects.Select(ds => new
                     {
@@ -257,6 +258,7 @@ namespace API.Controllers
                     subjectId = s.SubjectId,
                     subName = s.SubName,
                     subCode = s.SubCode,
+                    universityId = s.UniversityId,
                     status = s.Status,
                     departmentSubjects = s.DepartmentSubjects.Select(ds => new
                     {

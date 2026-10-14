@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useConfigHeader } from '../context/ConfigHeaderContext';
@@ -15,6 +15,7 @@ import {
   ArrowDown,
   X,
   Check,
+  ChevronDown,
   Layers,
   Plus,
   ExternalLink
@@ -266,14 +267,46 @@ function MasterPaperModal({ isOpen, onClose, onSubmit, initialData = null, subje
     isActive: true
   });
 
+  const [modalSubjects, setModalSubjects] = useState(subjects);
   const [subjectSearch, setSubjectSearch] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Sync or fetch subjects when modal is open
+  useEffect(() => {
+    if (subjects && subjects.length > 0) {
+      setModalSubjects(subjects);
+    } else if (isOpen) {
+      subjectService.getAllSubjects({ pageSize: 0 })
+        .then(res => {
+          const list = Array.isArray(res) ? res : (res?.items || []);
+          setModalSubjects(list);
+        })
+        .catch(err => console.error('Failed to load fallback subjects:', err));
+    }
+  }, [subjects, isOpen]);
+
+  // Click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
 
   useEffect(() => {
     if (initialData) {
       setFormData({
         ...initialData,
         catchNo: initialData.catchNo || '',
+        subjectIds: initialData.subjectIds?.map(Number) || [],
         masterSectionIds: initialData.masterSectionIds || []
       });
       if (initialData.paperId && (!initialData.masterSectionIds || initialData.masterSectionIds.length === 0)) {
@@ -328,11 +361,12 @@ function MasterPaperModal({ isOpen, onClose, onSubmit, initialData = null, subje
   };
 
   const toggleSubject = (subId) => {
+    const numId = Number(subId);
     setFormData(prev => ({
       ...prev,
-      subjectIds: prev.subjectIds.includes(subId)
-        ? prev.subjectIds.filter(id => id !== subId)
-        : [...prev.subjectIds, subId]
+      subjectIds: prev.subjectIds.some(id => Number(id) === numId)
+        ? prev.subjectIds.filter(id => Number(id) !== numId)
+        : [...prev.subjectIds, numId]
     }));
   };
 
@@ -462,18 +496,20 @@ function MasterPaperModal({ isOpen, onClose, onSubmit, initialData = null, subje
             </div>
           </div>
 
-          <div className="relative">
-            <label className="block text-[10px] font-black uppercase text-gray-500 tracking-wider mb-1.5">Associated Subjects *</label>
+          <div className="relative" ref={dropdownRef}>
+            <label className="block text-[10px] font-black uppercase text-gray-500 tracking-wider mb-1.5">
+              Associated Subjects * ({formData.subjectIds.length} selected)
+            </label>
             <div
               className="w-full bg-gray-50/50 border border-gray-200 rounded-xl text-xs font-medium flex flex-wrap gap-1 p-1.5 focus-within:ring-2 focus-within:ring-teal-500/20 focus-within:border-teal-600 transition min-h-[42px] cursor-text"
               onClick={() => setIsDropdownOpen(true)}
             >
               {formData.subjectIds.map(subId => {
-                const sub = subjects.find(s => s.subjectId === subId);
+                const sub = (modalSubjects || []).find(s => Number(s.subjectId) === Number(subId));
                 if (!sub) return null;
                 return (
-                  <span key={subId} className="bg-teal-100 text-teal-700 px-2 py-1 rounded-md text-xs flex items-center gap-1 font-bold">
-                    {sub.subCode}
+                  <span key={subId} className="bg-teal-100 text-teal-700 px-2 py-1 rounded-md text-xs flex items-center gap-1 font-bold border border-teal-200/50">
+                    <span>{sub.subCode ? `${sub.subCode} - ` : ''}{sub.subName}</span>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleSubject(subId); }}
@@ -484,32 +520,58 @@ function MasterPaperModal({ isOpen, onClose, onSubmit, initialData = null, subje
                   </span>
                 );
               })}
-              <input
-                type="text"
-                value={subjectSearch}
-                onChange={e => { setSubjectSearch(e.target.value); setIsDropdownOpen(true); }}
-                onFocus={() => setIsDropdownOpen(true)}
-                onBlur={() => setTimeout(() => setIsDropdownOpen(false), 200)}
-                className="flex-1 min-w-[100px] bg-transparent outline-none px-1 text-xs text-gray-900"
-                placeholder={formData.subjectIds.length === 0 ? "Search subjects..." : ""}
-              />
+              <div className="flex-1 min-w-[120px] flex items-center">
+                <input
+                  type="text"
+                  value={subjectSearch}
+                  onChange={e => { setSubjectSearch(e.target.value); setIsDropdownOpen(true); }}
+                  onFocus={() => setIsDropdownOpen(true)}
+                  className="w-full bg-transparent border-none outline-none text-gray-900 text-xs font-medium min-w-[100px]"
+                  placeholder={formData.subjectIds.length === 0 ? "Search subjects..." : ""}
+                />
+                <ChevronDown size={14} className={`text-gray-400 mr-2 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </div>
             </div>
 
             {isDropdownOpen && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto top-full custom-scrollbar py-1">
-                {subjects
-                  .filter(s => s.subName.toLowerCase().includes(subjectSearch.toLowerCase()) || s.subCode.toLowerCase().includes(subjectSearch.toLowerCase()))
-                  .map(sub => (
-                    <div
-                      key={sub.subjectId}
-                      onClick={() => toggleSubject(sub.subjectId)}
-                      className={`px-4 py-2.5 cursor-pointer text-xs font-semibold hover:bg-gray-50 transition flex items-center justify-between ${formData.subjectIds.includes(sub.subjectId) ? 'bg-teal-50/50 text-teal-700' : 'text-gray-700'}`}
-                    >
-                      <span>{sub.subCode} - {sub.subName}</span>
-                      {formData.subjectIds.includes(sub.subjectId) && <Check size={14} className="text-teal-700" />}
-                    </div>
-                  ))}
-                {subjects.filter(s => s.subName.toLowerCase().includes(subjectSearch.toLowerCase()) || s.subCode.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
+              <div 
+                className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-52 overflow-y-auto top-full py-1 overscroll-contain"
+                onWheel={(e) => e.stopPropagation()}
+              >
+                {(modalSubjects || [])
+                  .filter(s => {
+                    const name = (s.subName || '').toLowerCase();
+                    const code = (s.subCode || '').toLowerCase();
+                    const search = (subjectSearch || '').toLowerCase();
+                    return name.includes(search) || code.includes(search);
+                  })
+                  .map(sub => {
+                    const isSelected = formData.subjectIds.some(id => Number(id) === Number(sub.subjectId));
+                    return (
+                      <div
+                        key={sub.subjectId}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                        }}
+                        onClick={() => toggleSubject(sub.subjectId)}
+                        className={`px-4 py-2.5 cursor-pointer text-xs font-semibold hover:bg-gray-50 transition flex items-center justify-between ${
+                          isSelected ? 'bg-teal-50/50 text-teal-700' : 'text-gray-700'
+                        }`}
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-900">{sub.subName}</span>
+                          {sub.subCode && <span className="text-[10px] text-gray-400 font-medium">{sub.subCode}</span>}
+                        </div>
+                        {isSelected && <Check size={14} className="text-teal-700 shrink-0" />}
+                      </div>
+                    );
+                  })}
+                {(modalSubjects || []).filter(s => {
+                  const name = (s.subName || '').toLowerCase();
+                  const code = (s.subCode || '').toLowerCase();
+                  const search = (subjectSearch || '').toLowerCase();
+                  return name.includes(search) || code.includes(search);
+                }).length === 0 && (
                   <div className="px-4 py-3 text-xs text-gray-500 font-medium text-center">No subjects found</div>
                 )}
               </div>
@@ -639,13 +701,16 @@ export default function MasterPapersManagement() {
   useEffect(() => {
     const fetchSubjects = async () => {
       try {
-        const res = await subjectService.getSubjectByUniversity(activeUniversityId, { pageSize: 0 });
-        setSubjects(res.items || res || []);
+        const res = activeUniversityId
+          ? await subjectService.getSubjectByUniversity(activeUniversityId, { pageSize: 0 })
+          : await subjectService.getAllSubjects({ pageSize: 0 });
+        const list = Array.isArray(res) ? res : (res?.items || []);
+        setSubjects(list);
       } catch (err) {
-        console.error(err);
+        console.error("Failed to fetch subjects:", err);
       }
     };
-    if (activeUniversityId) fetchSubjects();
+    fetchSubjects();
   }, [activeUniversityId]);
 
   useEffect(() => {
@@ -742,13 +807,24 @@ export default function MasterPapersManagement() {
 
   const handleSubmit = async (data) => {
     try {
+      let uniId = activeUniversityId ? parseInt(activeUniversityId, 10) : null;
+      if (!uniId && data.subjectIds && data.subjectIds.length > 0) {
+        const selectedSub = subjects.find(s => Number(s.subjectId) === Number(data.subjectIds[0]));
+        if (selectedSub?.universityId) {
+          uniId = selectedSub.universityId;
+        }
+      }
+
       let savedPaperId = editingData?.paperId;
       if (editingData) {
-        await paperService.updatePaper(editingData.paperId, data);
+        await paperService.updatePaper(editingData.paperId, {
+          ...data,
+          universityId: uniId
+        });
       } else {
         const created = await paperService.createPaper({
           ...data,
-          universityId: parseInt(activeUniversityId, 10),
+          universityId: uniId,
           projectId: null // Ensure it's an academic paper
         });
         savedPaperId = created?.paperId || created?.id;

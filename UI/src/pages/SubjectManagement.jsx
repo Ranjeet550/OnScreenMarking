@@ -139,11 +139,14 @@ export default function SubjectManagement() {
       }
     }
 
+    const mappedCourseIds = subject.courseSubjects?.map(cs => cs.courseId || cs.course?.id).filter(Boolean) || [];
+
     setFormData({
       subName: subject.subName,
       subCode: subject.subCode || '',
       status: subject.status,
-      departmentId: depts[0]?.departmentId || ''
+      departmentId: depts[0]?.departmentId || '',
+      courseIds: mappedCourseIds
     });
     setEditingId(subject.subjectId);
     setShowForm(true);
